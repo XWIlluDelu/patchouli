@@ -1,0 +1,19 @@
+# Secrets — never commit real keys.
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.tmp
+
+# Original downloaded material is large and re-fetchable; the wiki and the
+# extracted reading surfaces are the tracked assets.
+raw/*
+!raw/.gitkeep
+
+# Wiki navigation indexes are derived by `scripts/indexes.py`; the binding floor
+# rebuilds them after every write, so tracking them only creates churn.
+wiki/index.md
+wiki/recent.md
+wiki/indexes/wiki-graph.json

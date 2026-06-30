@@ -1,0 +1,5 @@
+# Patchouli scripts run on the Python standard library alone for arxiv ingest
+# (arxiv API + ar5iv) and web ingest (Firecrawl over its REST API).
+#
+# The one optional dependency below is needed only to ingest local .pdf files.
+pypdf>=4.0
