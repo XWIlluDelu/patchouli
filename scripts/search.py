@@ -4,7 +4,7 @@
 
 Exa is a neural search engine: it takes a natural-language research direction and
 returns relevant web pages (papers, blogs, docs). This does NOT ingest and does NOT
-touch the wiki — it writes a candidate list to ``notes/searches/<slug>.md`` for the
+touch the wiki — it writes a candidate list to ``searches/<slug>.md`` for the
 user to review, then pick which entries to ``ingest`` by URL or arxiv id.
 
 Search is the same shape of deterministic fetch-and-format as extract.py, so it is a
@@ -73,7 +73,7 @@ def _arxiv_id_from(url: str) -> str | None:
 
 
 def search(query: str, *, n: int, workspace: Workspace) -> dict:
-    """Run an Exa search and write a candidate list to notes/searches/<slug>.md.
+    """Run an Exa search and write a candidate list to searches/<slug>.md.
 
     Returns a summary dict (query, path, count, candidates)."""
 
@@ -92,7 +92,7 @@ def search(query: str, *, n: int, workspace: Workspace) -> dict:
         })
 
     slug = slugify(query, fallback="search")
-    out_path = workspace.notes / "searches" / f"{slug}.md"
+    out_path = workspace.searches / f"{slug}.md"
     lines = [
         f"# Search: {query}",
         "",
@@ -121,7 +121,7 @@ def search(query: str, *, n: int, workspace: Workspace) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Discover candidate sources via Exa; writes notes/searches/<slug>.md.")
+    ap = argparse.ArgumentParser(description="Discover candidate sources via Exa; writes searches/<slug>.md.")
     ap.add_argument("query", help="a natural-language research direction")
     ap.add_argument("--n", type=int, default=8, help="number of candidates (default 8)")
     args = ap.parse_args()

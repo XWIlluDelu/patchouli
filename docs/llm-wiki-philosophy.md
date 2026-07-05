@@ -216,15 +216,16 @@ and what to ask, and the system writes, verifies, and stays selective.
 
 ## 9. The contracts are the surface; the scripts are the floor
 
-The human-facing surface is the six contracts in `AGENTS.md` — ingest, search, ask,
-synthesize, organize, maintain — matched to natural language by the routing table. Each is
-one authoring pass: the agent assembles its context by reading the filesystem, writes, and
-runs the binding floor.
+The human-facing surface is the contracts in `AGENTS.md` — ingest, search, ask,
+synthesize, organize, maintain, and polish, which proofreads the human's own notes and,
+like search, never touches the wiki — matched to natural language by the routing table.
+Each is one authoring pass: the agent assembles its context by reading the filesystem,
+writes, and, after any write to `wiki/`, runs the binding floor.
 
 The scripts are deliberately *not* an orchestration layer. `extract.py` turns a source
 into a clean reading surface (arxiv via the arxiv API and ar5iv, web via Firecrawl, local
 files directly) and prints the deterministic target path plus the provenance frontmatter.
-`search.py` discovers candidates via Exa into a notes file and touches nothing in the wiki.
+`search.py` discovers candidates via Exa into a file under `searches/` and touches nothing in the wiki.
 `check_wiki.py` is the objective floor; `indexes.py` rebuilds the navigation; `lint.py`
 advises. None of them retrieves wiki context for the model or decides what a page should
 say — that is the agent's, by reading and judging. This is the inversion in one line: the
@@ -285,7 +286,7 @@ model to refuse, and require it to say what would change the refusal.
 operation.** The output becomes the input. A clean, selective wiki produces clean
 operations; a polluted one degrades every later read.
 
-**PR8 — Expose operations; keep the scripts to the floor.** The surface is the six
+**PR8 — Expose operations; keep the scripts to the floor.** The surface is the
 contracts; each is gather-by-reading, write, verify. The scripts do the deterministic work
 and do not orchestrate the agent or retrieve for it. Subjective quality is tuned at design
 time, not run time.

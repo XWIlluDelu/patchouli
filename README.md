@@ -14,16 +14,17 @@ replaceable logistics around it.
 ## Quick start
 
 Start your agent in this folder (`pi`, `codex`, or `claude`); it reads `AGENTS.md`
-and learns six operations. Then talk to it:
+and learns its operations. Then talk to it:
 
 | You say | Operation | You get |
 |---|---|---|
 | "ingest 1706.03762" — an arxiv id, URL, or local file | ingest | one compiled source page in `wiki/sources/` |
-| "find papers on catastrophic forgetting in BNNs" | search | a candidate list in `notes/searches/` to pick ingests from |
+| "find papers on catastrophic forgetting in BNNs" | search | a candidate list in `searches/` to pick ingests from |
 | "what does the wiki say about X?" | ask | an answer in `wiki/answers/`, grounded in compiled pages only |
 | "synthesize the continual-learning approaches" | synthesize | one cross-work pattern in `wiki/syntheses/` |
 | "organize the wiki" | organize | concept/entity/synthesis pages where a boundary earns one |
 | "maintain" | maintain | pruned duplicates, orphans, and superseded pages |
+| "polish notes/attention-as-explanation.md" — the whole note or one passage | polish | your note proofread in place — mechanics fixed, voice intact |
 
 An operation that is not justified returns `NO_OP: <reason>` instead of writing —
 the wiki grows only when growth is earned. `tastes/active.md` is the research taste
@@ -52,7 +53,7 @@ it never blocks. The floor itself is tested: `python3 -m unittest discover -s te
 ## Layout
 
 ```
-AGENTS.md   entry point: routing, the six contracts, the binding floor (CLAUDE.md links here)
+AGENTS.md   entry point: routing, the contracts, the binding floor (CLAUDE.md links here)
 README.md   this file
 docs/       the design argument (llm-wiki-philosophy.md)
 prompts/    one task file per operation
@@ -63,5 +64,6 @@ tastes/     research tastes; active.md is the one in force
 wiki/       the asset: sources, concepts, entities, syntheses, answers, hubs, indexes
 extracted/  clean reading surfaces produced at ingest; quotes are checked against these
 raw/        original downloaded material (gitignored)
-notes/      search candidate lists and your own notes
+searches/   candidate lists written by search.py, for you to pick ingests from
+notes/      your own notes — human-written only; say "ingest notes/<file>" to add one to the wiki
 ```

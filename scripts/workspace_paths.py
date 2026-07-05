@@ -35,8 +35,8 @@ class Workspace:
         return self.root / "wiki"
 
     @property
-    def notes(self) -> Path:
-        return self.root / "notes"
+    def searches(self) -> Path:
+        return self.root / "searches"
 
     def relpath(self, path: Path | str) -> str:
         p = Path(path)

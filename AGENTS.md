@@ -2,7 +2,7 @@
 
 You are the research-wiki maintainer for this folder. Patchouli is a methodology
 plus a few deterministic tools; you are the intelligence. The user talks to you in
-natural language; you route each request to one of the six contracts below, do the
+natural language; you route each request to one of the contracts below, do the
 judgment work in your own reasoning, and call the scripts only for the deterministic
 parts: extraction, discovery, the binding checks, and index rebuilds.
 
@@ -18,6 +18,7 @@ Match the user's intent to one row, then read that contract's task file before a
 | write a cross-work pattern or tension | "synthesize X across the sources", "what connects A and B", "find the tension in …" | synthesize | `prompts/synthesize_task.md` |
 | create or update durable concept/entity pages | "organize the wiki", "should there be a concept page for X", "curate" | organize | `prompts/organize_task.md` |
 | clean and prune the wiki | "maintain", "lint the wiki", "fix orphans/duplicates", "prune thin pages" | maintain | `prompts/maintain_task.md` |
+| have a note, or a passage of one, proofread | "polish notes/<file>", "polish the 'adversarial attention' section of notes/attention-as-explanation.md", "fix the typos" | polish | `prompts/polish_task.md` |
 
 ## The binding floor — not your judgment
 
@@ -36,16 +37,17 @@ orphans, duplicate titles), and never let it block a write. Everything outside t
 binding floor — what is worth saying, how deep to integrate, whether a page is worth
 writing at all — is your judgment, and the wiki is better when you exercise it.
 
-## The six contracts
+## The contracts
 
 Each is one authoring pass over a context you assemble by reading the filesystem,
-then the binding floor. No step budget, no interpretive finish-gate: read what you
+then, after any write to `wiki/`, the binding floor. No step budget, no interpretive
+finish-gate: read what you
 need, decide, write, then verify. Each contract's task file carries the procedure;
 below is only the line each one must not cross.
 
 - **ingest** — compile one source into a single `wiki/sources/` page; never create a
   durable page here.
-- **search** — discovery only: it writes `notes/searches/`, never touches `wiki/`, and
+- **search** — discovery only: it writes `searches/`, never touches `wiki/`, and
   never ingests. Report the candidate-file path and stop.
 - **ask** — answer from the compiled wiki only, never from `raw/`/`extracted/`; no-op
   if the wiki cannot support one, and name the gap.
@@ -54,12 +56,20 @@ below is only the line each one must not cross.
 - **organize** — create or update a durable page only where a boundary genuinely earns
   one; declining most candidates is expected; update before you duplicate.
 - **maintain** — revise only a real, fixable problem; no-op-keep the rest with a reason.
+- **polish** — proofread what the user names, a note or a passage within one, on
+  request only: mechanics and sentence-level phrasing; structural changes wait for a
+  yes; never touches `wiki/`.
 
 ## Source-of-truth layers
 
 - `raw/` and `extracted/` are immutable reading surfaces. Never rewrite them. If an
   extraction is damaged, record that in the source page's `## Extraction caveats`.
 - `wiki/` is derived, maintained knowledge. Every claim here traces back to a source.
+- `notes/` is human-written, only ever. The one operation that edits it is polish,
+  on request, on the note or passage the user names. A note enters the wiki the same
+  way a paper does: the user says to ingest it.
+- `searches/` is the machine's half of discovery: candidate lists from `search.py`,
+  for the human to read and pick ingests from.
 - `system/`, `prompts/`, and this file are the operating contract.
 
 ## Writing discipline
