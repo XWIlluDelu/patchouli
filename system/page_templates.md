@@ -1,7 +1,8 @@
 # Page templates
 
 One universal structure per page type. This file is the maintainer's single
-source of truth for page structure. A taste may change emphasis, never structure.
+source of truth for page structure. A taste may change emphasis, never
+structure.
 
 The structures below are the target. Each one ends in a GOOD/BAD pair where the
 shape is easy to get wrong; copy the GOOD shape, avoid the BAD one. Show the
@@ -80,8 +81,8 @@ Only when this source conflicts with another compiled work.
 How a later researcher should use this source.
 ```
 
-Itemize claims; one marker per claim. A claim is what this work itself establishes —
-a result it cites from related work is context, not a claim.
+Itemize claims; one marker per claim. A claim is what this work itself
+establishes — a result it cites from related work is context, not a claim.
 
 ```text
 BAD (marker-saturated, compressed, not itemized):
@@ -175,21 +176,23 @@ Short answer is a standalone thesis; Evidence is per-source and specific.
 
 ```text
 BAD (thesis and evidence fused, no scannable top):
-The sources suggest network summaries help but item traces still matter, for example
-an EEG study got 96% and an RNN study used chronological subspaces, so overall it
-depends on the level of analysis...
+The sources suggest attention weights tell you something but maybe not why, for example
+one study found weak correlation with gradient importance and another re-ran the
+adversarial test with training, so overall it depends on what counts as an explanation...
 
 GOOD (Short answer up front, then dense per-source Evidence):
 ## Short answer
-Network-state summaries are informative readouts of working-memory load, but the wiki
-does **not** support treating them as substitutes for item-level, temporally organized
-traces — the two sit at different levels of analysis.
+Attention weights are informative summaries of model behavior, but the wiki does **not**
+support reading them as faithful explanations by default — the works disagree over what
+test would establish faithfulness, not just over the verdict.
 ## Evidence
-- `2404.19467`: dynamic Bayesian connectivity + GCN reaches 96% subject-specific / 89%
-  average six-class load classification; but splitting protocol and cross-subject
-  generalization are unclear. (Work: 2404.19467)
-- `2411.02685`: RNNs on N-back use chronological subspaces separating items by
-  presentation time; generalize to novel viewpoints but poorly to novel identities. (Work: 2411.02685)
+- `1902.10186`: across BiLSTM text-classification and QA tasks, attention weights
+  correlate only weakly with gradient and leave-one-out importance, and per-instance
+  adversarial attention distributions leave predictions largely unchanged; single-head
+  BiLSTM attention, not Transformer self-attention. (Work: 1902.10186)
+- `1908.04626`: adversarial attention trained as a model-wide component (not found per
+  instance) underperforms learned attention; proposes uniform-weight and seed-variance
+  baselines; same task family, so the disagreement is over the test's design. (Work: 1908.04626)
 ```
 
 ## Synthesis page
@@ -236,9 +239,9 @@ Preserve unresolved disagreements.
 ```
 
 The `## Evidence` and `## Claim status` blocks are optional. Use them when at
-least three claims benefit from a scannable map; omit them on short pages or when
-the prose already carries the grounding. They are presentation, not a requirement
-— never add the table just to fill the section.
+least three claims benefit from a scannable map; omit them on short pages or
+when the prose already carries the grounding. They are presentation, not a
+requirement — never add the table just to fill the section.
 
 ## Concept page
 
@@ -310,9 +313,9 @@ Use `(Works: ...)` markers for claims.
 
 ## Hub page
 
-A hub is a navigation surface for the human reader, not an evidence page. Create one
-only when a cluster of durable pages genuinely benefits from a reading guide; it
-carries no primary claims and needs no `(Work: ...)` markers.
+A hub is a navigation surface for the human reader, not an evidence page. Create
+one only when a cluster of durable pages genuinely benefits from a reading
+guide; it carries no primary claims and needs no `(Work: ...)` markers.
 
 ```markdown
 ---

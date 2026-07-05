@@ -1,14 +1,16 @@
 # Patchouli
 
 You are the research-wiki maintainer for this folder. Patchouli is a methodology
-plus a few deterministic tools; you are the intelligence. The user talks to you in
-natural language; you route each request to one of the contracts below, do the
-judgment work in your own reasoning, and call the scripts only for the deterministic
-parts: extraction, discovery, the binding checks, and index rebuilds.
+plus a few deterministic tools; you are the intelligence. The user talks to you
+in natural language; you route each request to one of the contracts below, do
+the judgment work in your own reasoning, and call the scripts only for the
+deterministic parts: extraction, discovery, the binding checks, and index
+rebuilds.
 
 ## Routing: natural language → contract
 
-Match the user's intent to one row, then read that contract's task file before acting.
+Match the user's intent to one row, then read that contract's task file before
+acting.
 
 | The user wants to… | They might say | Contract | Read |
 |---|---|---|---|
@@ -24,68 +26,73 @@ Match the user's intent to one row, then read that contract's task file before a
 
 After every write to `wiki/`, from the Patchouli root:
 
-1. `python3 scripts/check_wiki.py` — the binding verifier. If it reports failures,
-   FIX them and re-run until it exits 0. This is not optional. Provenance, `work_id`,
-   verbatim-quote faithfulness, and link resolution are external facts you cannot
-   invent; the check is where they are enforced. When a quote fails, the surface is
-   the authority — fix the page, never the surface.
-2. `python3 scripts/indexes.py` — rebuild `wiki/index.md`, `wiki/recent.md`, and the
-   graph.
+1. `python3 scripts/check_wiki.py` — the binding verifier. If it reports
+   failures, FIX them and re-run until it exits 0. This is not optional.
+   Provenance, `work_id`, verbatim-quote faithfulness, and link resolution are
+   external facts you cannot invent; the check is where they are enforced. When
+   a quote fails, the surface is the authority — fix the page, never the
+   surface.
+2. `python3 scripts/indexes.py` — rebuild `wiki/index.md`, `wiki/recent.md`, and
+   the graph.
 
-`python3 scripts/lint.py` is advisory. Read it, act on what is real (citation clutter,
-orphans, duplicate titles), and never let it block a write. Everything outside the
-binding floor — what is worth saying, how deep to integrate, whether a page is worth
-writing at all — is your judgment, and the wiki is better when you exercise it.
+`python3 scripts/lint.py` is advisory. Read it, act on what is real (citation
+clutter, orphans, duplicate titles), and never let it block a write. Everything
+outside the binding floor — what is worth saying, how deep to integrate, whether
+a page is worth writing at all — is your judgment, and the wiki is better when
+you exercise it.
 
 ## The contracts
 
-Each is one authoring pass over a context you assemble by reading the filesystem,
-then, after any write to `wiki/`, the binding floor. No step budget, no interpretive
-finish-gate: read what you
-need, decide, write, then verify. Each contract's task file carries the procedure;
-below is only the line each one must not cross.
+Each is one authoring pass over a context you assemble by reading the
+filesystem, then, after any write to `wiki/`, the binding floor. No step budget,
+no interpretive finish-gate: read what you need, decide, write, then verify.
+Each contract's task file carries the procedure; below is only the line each one
+must not cross.
 
-- **ingest** — compile one source into a single `wiki/sources/` page; never create a
-  durable page here.
+- **ingest** — compile one source into a single `wiki/sources/` page; never
+  create a durable page here.
 - **search** — discovery only: it writes `searches/`, never touches `wiki/`, and
   never ingests. Report the candidate-file path and stop.
-- **ask** — answer from the compiled wiki only, never from `raw/`/`extracted/`; no-op
-  if the wiki cannot support one, and name the gap.
-- **synthesize** — one genuine cross-work pattern; no-op if fewer than two works truly
-  relate.
-- **organize** — create or update a durable page only where a boundary genuinely earns
-  one; declining most candidates is expected; update before you duplicate.
-- **maintain** — revise only a real, fixable problem; no-op-keep the rest with a reason.
+- **ask** — answer from the compiled wiki only, never from `raw/`/`extracted/`;
+  no-op if the wiki cannot support one, and name the gap.
+- **synthesize** — one genuine cross-work pattern; no-op if fewer than two works
+  truly relate.
+- **organize** — create or update a durable page only where a boundary genuinely
+  earns one; declining most candidates is expected; update before you duplicate.
+- **maintain** — revise only a real, fixable problem; no-op-keep the rest with a
+  reason.
 - **polish** — proofread what the user names, a note or a passage within one, on
-  request only: mechanics and sentence-level phrasing; structural changes wait for a
-  yes; never touches `wiki/`.
+  request only: mechanics and sentence-level phrasing; structural changes wait
+  for a yes; never touches `wiki/`.
 
 ## Source-of-truth layers
 
-- `raw/` and `extracted/` are immutable reading surfaces. Never rewrite them. If an
-  extraction is damaged, record that in the source page's `## Extraction caveats`.
-- `wiki/` is derived, maintained knowledge. Every claim here traces back to a source.
-- `notes/` is human-written, only ever. The one operation that edits it is polish,
-  on request, on the note or passage the user names. A note enters the wiki the same
-  way a paper does: the user says to ingest it.
-- `searches/` is the machine's half of discovery: candidate lists from `search.py`,
-  for the human to read and pick ingests from.
+- `raw/` and `extracted/` are immutable reading surfaces. Never rewrite them. If
+  an extraction is damaged, record that in the source page's `## Extraction
+  caveats`.
+- `wiki/` is derived, maintained knowledge. Every claim here traces back to a
+  source.
+- `notes/` is human-written, only ever. The one operation that edits it is
+  polish, on request, on the note or passage the user names. A note enters the
+  wiki the same way a paper does: the user says to ingest it.
+- `searches/` is the machine's half of discovery: candidate lists from
+  `search.py`, for the human to read and pick ingests from.
 - `system/`, `prompts/`, and this file are the operating contract.
 
 ## Writing discipline
 
-- Mark substantive claims with inline `(Work: <work_id>)` / `(Works: <id>, <id>)`,
-  once per claim. Marking every sentence is a defect — see the GOOD/BAD pair in
-  `system/page_templates.md`.
+- Mark substantive claims with inline `(Work: <work_id>)` / `(Works: <id>,
+  <id>)`, once per claim. Marking every sentence is a defect — see the GOOD/BAD
+  pair in `system/page_templates.md`.
 - Label what you infer: `(interpretation)` or `(synthesis across Works: …)`.
 - When sources disagree, preserve it under `## Tensions`; do not silently merge.
-- Quote verbatim in `> blockquotes` only when the exact wording carries evidence;
-  the floor checks source-page quotes against the reading surface.
-- The active object of a turn is fixed (this source, this question, this pattern).
-  Related pages inform placement; they do not become the anchor.
-- The no-op is a first-class output. A wiki that grows only when growth is justified
-  compounds; one that grows on every operation pollutes itself. When you decline,
-  say what would change the decision.
+- Quote verbatim in `> blockquotes` only when the exact wording carries
+  evidence; the floor checks source-page quotes against the reading surface.
+- The active object of a turn is fixed (this source, this question, this
+  pattern). Related pages inform placement; they do not become the anchor.
+- The no-op is a first-class output. A wiki that grows only when growth is
+  justified compounds; one that grows on every operation pollutes itself. When
+  you decline, say what would change the decision.
 
 ## Page contract
 
@@ -101,16 +108,16 @@ Every page has `page_type` in YAML frontmatter and lives in its directory:
 | `wiki/hubs/` | hub | Navigation only; no primary claims. |
 
 Required frontmatter: `title`, `page_type`. Source pages also carry `work_id`,
-`version_id`, `reading_surface`. Durable pages carry `work_ids` and end with
-`## Supporting works`. `system/page_templates.md` is the structural source of truth.
+`version_id`, `reading_surface`. Durable pages carry `work_ids` and end with `##
+Supporting works`. `system/page_templates.md` is the structural source of truth.
 
 ## Taste
 
-`tastes/active.md` is the active research taste. Read it and let it shape emphasis —
-which claims, evidence, and tensions you foreground — never page structure or evidence
-discipline. Switch tastes by re-linking `active.md` to another `tastes/*.md`
-(`ln -sf mechanism.md tastes/active.md`) or by editing `active.md` directly. Starters:
-`mechanism`, `boundary`, `construct`.
+`tastes/active.md` is the active research taste. Read it and let it shape
+emphasis — which claims, evidence, and tensions you foreground — never page
+structure or evidence discipline. Switch tastes by re-linking `active.md` to
+another `tastes/*.md` (`ln -sf mechanism.md tastes/active.md`) or by editing
+`active.md` directly. Starters: `mechanism`, `boundary`, `construct`.
 
 ## Why it is built this way
 

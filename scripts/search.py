@@ -1,6 +1,6 @@
 """Discover candidate sources for a research direction, via Exa.
 
-    python3 scripts/search.py "attention mechanisms in neural networks" [--n 8]
+    python3 scripts/search.py "attention as explanation" [--n 8]
 
 Exa is a neural search engine: it takes a natural-language research direction and
 returns relevant web pages (papers, blogs, docs). This does NOT ingest and does NOT
