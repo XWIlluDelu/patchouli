@@ -121,6 +121,18 @@ training-cost comparisons against RNN/CNN encoder-decoders, plus an English
 constituency-parsing generalization check.
 ```
 
+Reproducibility names what a replicator gets and what they still lack, not a
+verdict.
+
+```text
+BAD: The paper is reproducible; code is available.
+GOOD: Code is public (tensor2tensor); training is pinned to step counts (100k base /
+300k big, on 8 P100 GPUs), optimizer schedule (Adam, 4000 warmup steps), and
+regularization (dropout 0.1, label smoothing 0.1). Reported BLEU averages the last
+5 (base) / 20 (big) checkpoints, with beam 4 and length penalty 0.6. No seeds,
+repeated trials, or confidence intervals — single-run results; expect variance.
+```
+
 Extraction caveats are about the extraction, separate from scientific Limits.
 
 ```text
