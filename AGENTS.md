@@ -45,9 +45,11 @@ you exercise it.
 
 Each is one authoring pass over a context you assemble by reading the
 filesystem, then, after any write to `wiki/`, the binding floor. No step budget,
-no interpretive finish-gate: read what you need, decide, write, then verify.
-Each contract's task file carries the procedure; below is only the line each one
-must not cross.
+no interpretive finish-gate: read what you need, decide, write, then verify. A
+contract that wrote anything — a wiki page, a note, a candidate list — ends by
+committing: `git add -A && git commit -m "<contract>: <object>"`; history is
+what makes pruning, and every other write, reversible. Each contract's task file
+carries the procedure; below is only the line each one must not cross.
 
 - **ingest** — compile one source into a single `wiki/sources/` page; never
   create a durable page here.

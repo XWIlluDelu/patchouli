@@ -24,7 +24,8 @@ class LintFinding:
 def lint_wiki(workspace: Workspace, inventory: WikiInventory | None = None) -> list[LintFinding]:
     """Advisory content lint. Never blocks writes; produces follow-up items.
 
-    Binding invariants (unreadable, broken_link, quote_unresolved, work markers,
+    Binding invariants (unreadable, broken_link, quote_unresolved, stale source
+    version_id, work markers, work-id resolution on durables and answers,
     support list, single-work synthesis, page_type/dir mismatch) live in
     check_wiki.py, with the quote machinery in quotes.py. This function reports only
     the advisory signals a maintainer may revise but that never gate a write:

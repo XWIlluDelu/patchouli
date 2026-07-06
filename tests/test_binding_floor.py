@@ -20,6 +20,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from check_wiki import check_issues            # noqa: E402
+from text_helpers import content_version_id    # noqa: E402
 from workspace_paths import Workspace          # noqa: E402
 
 SURFACE = (
@@ -46,8 +47,12 @@ class BindingFloor(unittest.TestCase):
         self.put(f"extracted/{work_id}/text.md", text)
 
     def source(self, work_id: str = "1706", *, marker: bool = True, surface: str | None = "auto",
-               version: str = "sha256-x", extra_body: str = "", quote: str | None = None) -> str:
-        fm = ["title: Paper", "page_type: source", f"work_id: {work_id}", f"version_id: {version}"]
+               version: str | None = "auto", extra_body: str = "", quote: str | None = None) -> str:
+        if version == "auto":
+            version = content_version_id(SURFACE)
+        fm = ["title: Paper", "page_type: source", f"work_id: {work_id}"]
+        if version is not None:
+            fm.append(f"version_id: {version}")
         if surface == "auto":
             fm.append(f"reading_surface: extracted/{work_id}/text.md")
         elif surface is not None:
@@ -123,8 +128,16 @@ class BindingFloor(unittest.TestCase):
 
     def test_missing_version_id(self):
         self.put_surface("1706")
-        self.put("wiki/sources/p.md", self.source().replace("version_id: sha256-x\n", ""))
+        self.put("wiki/sources/p.md", self.source(version=None))
         self.assertIn("source_version_id_missing", self.codes())
+
+    def test_stale_version_id_fails(self):
+        # The page claims a surface version it was not written from — the drift
+        # source_version_stale exists to catch, whether from a --refresh'd
+        # extraction or an edited surface.
+        self.put_surface("1706")
+        self.put("wiki/sources/p.md", self.source(version="sha256-deadbeefdeadbeef"))
+        self.assertIn("source_version_stale", self.codes())
 
     def test_source_pollution_phrase(self):
         self.put_surface("1706")
@@ -157,6 +170,22 @@ class BindingFloor(unittest.TestCase):
         self.durable("concept", "concepts",
                      body="## Definition\n\nno marker here\n\n## Supporting works\n\n- Paper — `1706`")
         self.assertIn("work_marker_missing", self.codes())
+
+    # --- answer citations ----------------------------------------------------
+
+    def test_answer_with_unresolved_work_id_fails(self):
+        # No marker/support mandate on answers — but a cited work must resolve,
+        # or a pruned source leaves the answer dangling silently.
+        self.put("wiki/answers/a.md",
+                 "---\ntitle: A\npage_type: answer\nwork_ids: [ghost]\n---\n\n# A\n\nclaim (Work: ghost)\n")
+        self.assertIn("work_id_unresolved", self.codes())
+
+    def test_answer_with_resolved_work_id_passes(self):
+        self.put_surface("1706")
+        self.put("wiki/sources/p.md", self.source())
+        self.put("wiki/answers/a.md",
+                 "---\ntitle: A\npage_type: answer\nwork_ids: [1706]\n---\n\n# A\n\nclaim (Work: 1706)\n")
+        self.assertEqual(self.codes(), set())
 
     # --- links and typing --------------------------------------------------
 

@@ -3,7 +3,7 @@
 Dispatches by input type and writes a clean reading surface the agent then
 compiles into a source page:
 
-    python3 scripts/extract.py <input> [--work-id ID]
+    python3 scripts/extract.py <input> [--work-id ID] [--refresh]
 
     <input> is one of
       - an arxiv id or arxiv URL  -> arxiv API (metadata) + ar5iv (body), no key
@@ -20,7 +20,6 @@ and prints work_id / version_id / reading_surface for the source frontmatter.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
@@ -32,7 +31,7 @@ from pathlib import Path
 
 from env_loader import with_key_retry, KeyRetry, KeyPoolExhausted
 from file_state import atomic_write_bytes, atomic_write_text
-from text_helpers import slugify
+from text_helpers import content_version_id, slugify
 from workspace_paths import Workspace
 
 USER_AGENT = "Patchouli/1.0 (research wiki ingest)"
@@ -228,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Extract a source into extracted/<work_id>/text.md")
     parser.add_argument("input", help="arxiv id/URL, http(s) URL, or local file path")
     parser.add_argument("--work-id", default=None, help="override the derived work_id")
+    parser.add_argument("--refresh", action="store_true", help="replace an existing reading surface whose content changed; the source page must then be updated to the new version_id")
     args = parser.parse_args(argv)
     ws = Workspace.from_path(None)
 
@@ -243,8 +243,16 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"unrecognized input: {value!r} (not an arxiv id, an http(s) URL, or an existing file)")
 
     out = ws.abspath(ws.extracted / work_id / "text.md")
+    version_id = content_version_id(text)
+    if out.exists() and not args.refresh:
+        existing = content_version_id(out.read_bytes())
+        if existing != version_id:
+            raise SystemExit(
+                f"{ws.relpath(out)} already exists with different content (existing {existing}, new {version_id}); "
+                "it is the quote-binding anchor for its source page, so it is never replaced silently. "
+                "Re-run with --refresh to replace it, then update the source page against the new surface."
+            )
     atomic_write_text(out, text)
-    version_id = "sha256-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
     title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), work_id)
     source_page = _source_page(work_id, title, is_arxiv=arxiv_id is not None)
     print(f"extracted. write the source page to:\n  {source_page}")

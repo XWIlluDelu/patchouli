@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import re
 
 from quotes import verify_source_quotes
+from text_helpers import content_version_id
 from wiki_inventory import (
     DURABLE_TYPES,
     PAGE_DIRS,
@@ -83,6 +84,14 @@ def _source_work_ids(inventory: WikiInventory) -> set[str]:
     return ids
 
 
+def _unresolved_work_issues(page: PageRecord, referenced: set[str], source_work_ids: set[str]) -> list[CheckIssue]:
+    return [
+        CheckIssue("work_id_unresolved", page.path, f"work id {work_id!r} has no source page", "cite only ingested works; ingest the source or remove the marker")
+        for work_id in sorted(referenced)
+        if work_id not in source_work_ids
+    ]
+
+
 def _check_source(page: PageRecord, seen_work_ids: dict[str, str], workspace: Workspace) -> list[CheckIssue]:
     issues: list[CheckIssue] = []
     work_id = page.frontmatter.get("work_id", "").strip()
@@ -111,6 +120,10 @@ def _check_source(page: PageRecord, seen_work_ids: dict[str, str], workspace: Wo
     else:
         for item in quote_result.get("unresolved", []):
             issues.append(CheckIssue("quote_unresolved", page.path, f"quote not found verbatim in the reading surface: {item['quote']!r}", "quote the source verbatim or drop the blockquote; the normalizer already folds emphasis, curly quotes, and formula drift"))
+        if version_id:
+            surface_version = content_version_id(workspace.abspath(page.frontmatter["reading_surface"]).read_bytes())
+            if version_id != surface_version:
+                issues.append(CheckIssue("source_version_stale", page.path, f"version_id {version_id} does not match the reading surface ({surface_version})", f"the surface is the authority: re-read it, update the page, and set version_id: {surface_version}; never edit the surface to make a check pass"))
     return issues
 
 
@@ -123,9 +136,7 @@ def _check_durable(page: PageRecord, source_work_ids: set[str]) -> list[CheckIss
     if not support_body:
         issues.append(CheckIssue("support_list_missing", page.path, "durable page has no ## Supporting works section", "end the page with a ## Supporting works list of backticked work ids"))
     referenced = inline_ids | support_work_ids(support_body)
-    for work_id in sorted(referenced):
-        if work_id not in source_work_ids:
-            issues.append(CheckIssue("work_id_unresolved", page.path, f"work id {work_id!r} has no source page", "cite only ingested works; ingest the source or remove the marker"))
+    issues.extend(_unresolved_work_issues(page, referenced, source_work_ids))
     if page.page_type == "synthesis" and len({wid for wid in referenced if wid in source_work_ids}) < 2:
         issues.append(CheckIssue("single_work_synthesis", page.path, "synthesis rests on fewer than two resolved works", "a synthesis needs >=2 works; widen support or no-op with a reason"))
     return issues
@@ -159,6 +170,12 @@ def check_issues(workspace: Workspace, inventory: WikiInventory | None = None) -
             issues.extend(_check_source(page, seen_work_ids, workspace))
         elif page.page_type in DURABLE_TYPES:
             issues.extend(_check_durable(page, source_work_ids))
+        elif page.page_type == "answer":
+            # Answers carry no marker/support requirement, but a work id they do
+            # cite must resolve — otherwise a pruned source leaves the answer
+            # dangling silently, and later asks compound on it.
+            cited = set(page.work_ids) | set(work_ids_from_text(page.body))
+            issues.extend(_unresolved_work_issues(page, cited, source_work_ids))
     return issues
 
 
