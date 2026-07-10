@@ -18,11 +18,22 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from wiki_inventory import parse_frontmatter, parse_inline_list, scan_wiki    # noqa: E402
+from wiki_inventory import (  # noqa: E402
+    parse_frontmatter,
+    parse_inline_list,
+    scan_wiki,
+    work_ids_from_text,
+)
 from workspace_paths import Workspace                                         # noqa: E402
 
 
 class FrontmatterLists(unittest.TestCase):
+    def test_synthesis_marker_is_also_provenance(self):
+        self.assertEqual(
+            work_ids_from_text("claim (synthesis across Works: w1, w2)"),
+            ("w1", "w2"),
+        )
+
     def test_block_list_normalizes_to_inline_form(self):
         meta, body = parse_frontmatter("---\ntitle: T\nwork_ids:\n  - a1\n  - a2\n---\nbody\n")
         self.assertEqual(meta["work_ids"], "[a1, a2]")

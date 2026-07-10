@@ -14,18 +14,19 @@ quality, do not describe it.
 ---
 title: "Paper title"
 page_type: source
-work_id: <stable work id, e.g. the arxiv id>
+work_id: <stable work id emitted by extract.py>
 version_id: <content hash from extract.py>
 reading_surface: extracted/<work_id>/text.md
+source: <source locator emitted by extract.py>
 ---
 
 # Paper title
 
 ## What this source is
 
-One paragraph: what kind of source this is and what problem it addresses.
-Scannable on its own — a reader who reads only this line knows whether to keep
-reading.
+One paragraph: what kind of source this is and what problem it addresses,
+ending with `(Work: <work_id>)`. Scannable on its own — a reader who reads only
+this line knows whether to keep reading.
 
 ## Source identity
 
@@ -109,7 +110,8 @@ pairs, 32k word-piece vocab), comparing the Transformer against the best recurre
 and convolutional encoder-decoders. The base model uses N=6 encoder/decoder layers,
 d_model=512, h=8 parallel attention heads with d_k=d_v=64; performance is BLEU on the
 standard test sets, and training cost is reported in GPU-days — an experiment whose
-headline numbers (28.4 and 41.8 BLEU) come from tables, not figures.
+headline numbers (28.4 and 41.8 BLEU) come from tables, not figures. (Work:
+1706.03762)
 ```
 
 Evidence status is one scannable line, not a vague adjective.
@@ -118,7 +120,7 @@ Evidence status is one scannable line, not a vague adjective.
 BAD: Strong evidence overall.
 GOOD: experiment — two WMT 2014 translation benchmarks with tabulated BLEU and
 training-cost comparisons against RNN/CNN encoder-decoders, plus an English
-constituency-parsing generalization check.
+constituency-parsing generalization check. (Work: 1706.03762)
 ```
 
 Reproducibility names what a replicator gets and what they still lack, not a
@@ -131,6 +133,7 @@ GOOD: Code is public (tensor2tensor); training is pinned to step counts (100k ba
 regularization (dropout 0.1, label smoothing 0.1). Reported BLEU averages the last
 5 (base) / 20 (big) checkpoints, with beam 4 and length penalty 0.6. No seeds,
 repeated trials, or confidence intervals — single-run results; expect variance.
+(Work: 1706.03762)
 ```
 
 Extraction caveats are about the extraction, separate from scientific Limits.
@@ -163,7 +166,8 @@ work_ids: [id-1, id-2]
 ## Short answer
 
 One scannable paragraph: the thesis and the load-bearing reason, with the key
-conclusion in bold. A reader who stops here should have the answer.
+conclusion in bold and its grounding marker. A reader who stops here should have
+the answer.
 
 ## Evidence
 
@@ -175,8 +179,10 @@ plus its own caveat — what this source shows and where it is weak.
 
 ## Synthesis
 
-The developed narrative: how the sources relate, where they agree or pull apart,
-and the non-obvious connection. Carry `(Work: ...)` / `(Works: ...)` markers.
+The developed narrative: with multiple works, how they relate, agree, or pull
+apart and the non-obvious connection; with one work, the implication and
+boundary the evidence supports. Use `(Work: ...)` for direct evidence and
+`(synthesis across Works: ...)` for a cross-work inference.
 
 ## Limits and gaps
 
@@ -196,7 +202,8 @@ GOOD (Short answer up front, then dense per-source Evidence):
 ## Short answer
 Attention weights are informative summaries of model behavior, but the wiki does **not**
 support reading them as faithful explanations by default — the works disagree over what
-test would establish faithfulness, not just over the verdict.
+test would establish faithfulness, not just over the verdict. (synthesis across
+Works: 1902.10186, 1908.04626)
 ## Evidence
 - `1902.10186`: across BiLSTM text-classification and QA tasks, attention weights
   correlate only weakly with gradient and leave-one-out importance, and per-instance
@@ -220,7 +227,8 @@ work_ids: [id-1, id-2]
 
 ## Thesis
 
-A contestable cross-work claim with `(Works: id-1, id-2)` markers.
+A contestable cross-work claim with a `(synthesis across Works: id-1, id-2)`
+marker.
 
 ## Counter-evidence
 
@@ -276,7 +284,8 @@ Explain why the concept recurs across works.
 
 ## Evidence and limits
 
-Summarize support and boundaries with `(Works: ...)` markers.
+Summarize direct support with `(Works: ...)`; mark inferred relations as
+`(synthesis across Works: ...)`.
 
 ## Evidence            <!-- optional; use when >=3 claims benefit; omit on short pages -->
 
@@ -315,7 +324,8 @@ Explain what this entity enables or changes.
 
 ## Evidence and limits
 
-Use `(Works: ...)` markers for claims.
+Use `(Works: ...)` for directly grounded claims and `(synthesis across Works:
+...)` for inferred relations.
 
 ## Supporting works
 

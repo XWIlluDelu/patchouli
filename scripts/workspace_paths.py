@@ -49,6 +49,30 @@ class Workspace:
         self.assert_inside(resolved)
         return resolved
 
+    def confined(self, base: Path | str, *parts: str) -> Path:
+        """Resolve an output beneath one real, non-symlinked workspace directory."""
+
+        base_path = Path(base)
+        lexical_base = (
+            base_path.absolute() if base_path.is_absolute() else (self.root / base_path).absolute()
+        )
+        resolved_base = lexical_base.resolve()
+        self.assert_inside(resolved_base)
+        if resolved_base != lexical_base:
+            raise ValueError(f"output root must not be a symlink: {lexical_base}")
+        relative = Path(*parts)
+        cursor = resolved_base
+        for part in relative.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                raise ValueError(f"output path component must not be a symlink: {cursor}")
+        resolved = cursor.resolve()
+        try:
+            resolved.relative_to(resolved_base)
+        except ValueError as exc:
+            raise ValueError(f"path escapes output root {lexical_base}: {resolved}") from exc
+        return resolved
+
     def assert_inside(self, path: Path | str) -> None:
         p = Path(path).resolve()
         try:

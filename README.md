@@ -22,12 +22,13 @@ Start your agent in this folder (`pi`, `codex`, or `claude`); it reads
 | "find papers on attention as explanation" | search | a candidate list in `searches/` to pick ingests from |
 | "what does the wiki say about attention as explanation?" | ask | an answer in `wiki/answers/`, grounded in compiled pages only |
 | "synthesize the attention-as-explanation debate" | synthesize | one cross-work pattern in `wiki/syntheses/` |
-| "organize the wiki" | organize | concept/entity/synthesis pages where a boundary earns one |
-| "maintain" | maintain | pruned duplicates, orphans, and superseded pages |
+| "organize the wiki" | organize | durable pages or a reading-path hub where one is earned |
+| "maintain" or "this page is wrong" | maintain | evidence-grounded corrections or justified pruning |
 | "polish notes/attention-as-explanation.md" — the whole note or one passage | polish | your note proofread in place — mechanics fixed, voice intact |
 
-An operation that is not justified returns `NO_OP: <reason>` instead of writing
-— the wiki grows only when growth is earned. `tastes/active.md` is the research
+A knowledge or note change that is not justified returns `NO_OP: <reason>`
+instead of writing; search still records discovery attempts. The wiki grows only
+when growth is earned. `tastes/active.md` is the research
 taste the agent reads for emphasis; point it at another `tastes/*.md` to change
 what gets foregrounded.
 
@@ -45,9 +46,9 @@ everything except two add-ons:
 
 ## What is enforced vs. what is judgment
 
-`scripts/check_wiki.py` runs after every write: provenance, work ids,
-verbatim-quote faithfulness against the extracted reading surface, link
-resolution — facts the agent cannot invent. Everything else — what is worth
+`scripts/check_wiki.py` runs after every write: required schema, provenance,
+work ids, verbatim-quote faithfulness against the extracted reading surface,
+link resolution — facts the agent cannot invent. Everything else — what is worth
 saying, how deep to integrate, whether a page is worth writing at all — is the
 agent's judgment. `scripts/lint.py` advises; it never blocks. The floor itself
 is tested: `python3 -m unittest discover -s tests`.
@@ -60,12 +61,12 @@ README.md   this file
 docs/       the design argument (llm-wiki-philosophy.md)
 prompts/    one task file per operation
 system/     page_templates.md — structural source of truth for every page type
-scripts/    extract, search, check_wiki, lint, indexes — the deterministic parts
-tests/      unittest suite for the binding floor
+scripts/    extract, search, check_wiki, lint, indexes, scoped commit — deterministic parts
+tests/      unittest suite for the deterministic logistics
 tastes/     research tastes; active.md is the one in force
 wiki/       the asset: sources, concepts, entities, syntheses, answers, hubs, indexes
-extracted/  clean reading surfaces produced at ingest; quotes are checked against these
-raw/        original downloaded material (gitignored)
+extracted/  tracked current reading surfaces; explicit refreshes are retained by Git
+raw/        current source captures used during extraction (gitignored)
 searches/   candidate lists written by search.py, for you to pick ingests from
 notes/      your own notes — human-written only; say "ingest notes/<file>" to add one to the wiki
 ```

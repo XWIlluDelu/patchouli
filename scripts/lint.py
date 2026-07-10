@@ -3,12 +3,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from wiki_inventory import DURABLE_TYPES, WikiInventory, link_key, link_target_map, scan_wiki
+from wiki_inventory import (
+    DURABLE_TYPES,
+    WORK_MARKER_RE,
+    WikiInventory,
+    link_key,
+    link_target_map,
+    scan_wiki,
+)
 from workspace_paths import Workspace
 
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
-_MARKER_RE = re.compile(r"\(Works?:")
 _BULLET_RE = re.compile(r"^\s*[-*] ")
+SOURCE_POLLUTION_PHRASES = (
+    "suggested wiki update",
+    "maintenance note",
+    "integration note",
+    "navigation recommendation",
+    "todo:",
+)
 
 
 @dataclass(frozen=True)
@@ -24,13 +37,13 @@ class LintFinding:
 def lint_wiki(workspace: Workspace, inventory: WikiInventory | None = None) -> list[LintFinding]:
     """Advisory content lint. Never blocks writes; produces follow-up items.
 
-    Binding invariants (unreadable, broken_link, quote_unresolved, stale source
-    version_id, work markers, work-id resolution on durables and answers,
-    support list, single-work synthesis, page_type/dir mismatch) live in
+    Binding invariants (required frontmatter, broken links, quote faithfulness,
+    source version/surface identity, work markers and declarations, support
+    lists, single-work synthesis, page_type/dir mismatch) live in
     check_wiki.py, with the quote machinery in quotes.py. This function reports only
     the advisory signals a maintainer may revise but that never gate a write:
-    missing frontmatter, citation clutter, no-outgoing-link durables, orphans, and
-    duplicate titles.
+    source-card workflow residue, citation clutter, no-outgoing-link durables,
+    orphans, and duplicate titles.
     """
 
     inventory = inventory or scan_wiki(workspace)
@@ -43,19 +56,25 @@ def lint_wiki(workspace: Workspace, inventory: WikiInventory | None = None) -> l
         if page.page_type == "index":
             continue
         titles.setdefault(page.title.strip().lower(), []).append(page.path)
-        if not page.frontmatter:
-            findings.append(LintFinding(page.path, "missing_frontmatter", "page has no YAML frontmatter"))
         for target in page.links:
             resolved = link_targets.get(link_key(target))
             if resolved is not None and resolved != page.path:
                 inbound[resolved] = inbound.get(resolved, 0) + 1
         if page.page_type == "source":
+            body_lower = page.body.lower()
+            for phrase in SOURCE_POLLUTION_PHRASES:
+                if phrase in body_lower:
+                    findings.append(LintFinding(
+                        page.path,
+                        "source_pollution",
+                        f"source card contains possible workflow residue {phrase!r}; verify before removing source content",
+                    ))
             # Advisory: inline markers denser than the prose signal citation clutter.
             # Markers on itemized `## Key claims` bullets are healthy (one per claim);
             # the defect is a marker on nearly every prose sentence.
             prose_lines = [ln for ln in page.body.splitlines() if ln.strip() and not _BULLET_RE.match(ln)]
             prose = "\n".join(prose_lines)
-            prose_markers = len(_MARKER_RE.findall(prose))
+            prose_markers = len(WORK_MARKER_RE.findall(prose))
             prose_sentences = len(_SENTENCE_END_RE.findall(prose))
             if prose_markers >= 3 and prose_sentences >= 3 and prose_markers * 5 >= prose_sentences * 4:
                 findings.append(LintFinding(page.path, "marker_saturation", f"{prose_markers} inline markers across {prose_sentences} prose sentences; mark each claim once, not every sentence"))

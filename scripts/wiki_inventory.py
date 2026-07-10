@@ -20,7 +20,7 @@ PAGE_TYPES = set(PAGE_DIRS.values())
 DURABLE_TYPES = {"concept", "entity", "synthesis"}
 
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-WORK_MARKER_RE = re.compile(r"\(Works?:\s*([^)]+)\)")
+WORK_MARKER_RE = re.compile(r"\((?:synthesis across\s+)?Works?:\s*([^)]+)\)")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 MD_LINK_RE = re.compile(r"\]\(([^)\s]+\.md)\)")
 

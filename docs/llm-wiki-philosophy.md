@@ -183,15 +183,15 @@ produced dozens — and the smaller, selective bundles scored higher. Given the
 same organize command, the selective arm's model autonomously judged most
 boundaries not worth a durable page and declined; the others promoted
 aggressively. No human made the difference. Selectivity here is architectural
-and model-driven: it comes from (a) ingest never auto-creating durable pages —
-they come only from the separate organize judgment — and (b) the model
-exercising that judgment to decline most candidates.
+and model-driven: ingest never auto-creates durable pages; targeted synthesis
+requires an explicit synthesis request, while organize discovers other durable
+boundaries and is expected to decline most candidates.
 
 The principle: the no-op is a first-class output. A wiki that grows only when
 growth is justified compounds; one that grows on every operation pollutes
 itself. Trust the model to refuse to write, and require it to say what would
-change the refusal. Every Patchouli contract ends with a no-op clause for this
-reason.
+change the refusal. Every judgment-bearing authoring contract carries this
+no-op; search instead records the discovery attempt without changing the wiki.
 
 ---
 
@@ -251,8 +251,9 @@ source into a clean reading surface (arxiv via the arxiv API and ar5iv, web via
 Firecrawl, local files directly) and prints the deterministic target path plus
 the provenance frontmatter. `search.py` discovers candidates via Exa into a file
 under `searches/` and touches nothing in the wiki. `check_wiki.py` is the
-objective floor; `indexes.py` rebuilds the navigation; `lint.py` advises. None
-of them retrieves wiki context for the model or decides what a page should say —
+objective floor; `indexes.py` rebuilds the navigation; `lint.py` advises; and
+`commit.py` confines each contract's commit to its exact files. None of them
+retrieves wiki context for the model or decides what a page should say —
 that is the agent's, by reading and judging. This is the inversion in one line:
 the scripts do what is deterministic, the agent does what is judgment, and
 nothing scripted stands between the agent and the authoring pass.
@@ -343,15 +344,16 @@ A self-audit — the same checklist the design is meant to pass:
   read-decide-write pass.
 - Objective invariants verified outside the pass, advisory on the rest, never
   gating on form (PR5, PR10)? Yes — `check_wiki.py` binds, `lint.py` advises.
-- The no-op first-class, the model trusted to refuse (PR6)? Yes — every contract
-  carries a no-op clause; ingest never auto-creates durable pages.
-- A selective wiki, not auto-promotion (PR6, PR7)? Durable pages come only from
-  organize, which is expected to decline most candidates.
+- The no-op first-class, the model trusted to refuse (PR6)? Yes — judgment-bearing
+  authoring contracts carry a no-op; search records discovery without changing
+  the wiki.
+- A selective wiki, not auto-promotion (PR6, PR7)? Ingest never promotes; targeted
+  synthesis and selective organize are the only durable-page paths.
 - The human in sourcing and asking, out of the generation path (PR9)? Yes — the
   human talks; the agent writes and verifies.
 - Logistics thin on orchestration, thick on objective verification (PR10)? The
-  scripts are extraction, discovery, the floor, and indexes — there is no
-  orchestration layer.
+  scripts are extraction, discovery, scoped commits, the floor, and indexes —
+  there is no orchestration layer.
 
 A "no" on any line is a named reason to reconsider, not a vague worry.
 

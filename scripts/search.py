@@ -17,14 +17,13 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
-import re
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from env_loader import with_key_retry, KeyRetry, KeyPoolExhausted
 from file_state import atomic_write_text
-from text_helpers import slugify
+from text_helpers import parse_arxiv_ref, slugify
 from workspace_paths import Workspace
 
 EXA_SEARCH = "https://api.exa.ai/search"
@@ -68,8 +67,8 @@ def _exa_search(query: str, n: int, env_path: Path, *, timeout: int = 60) -> dic
 
 
 def _arxiv_id_from(url: str) -> str | None:
-    match = re.search(r"(?:arxiv\.org/(?:abs|pdf|html)|ar5iv\.labs\.arxiv\.org/html)/(\d{4}\.\d{4,5}(?:v\d+)?)", url, re.IGNORECASE)
-    return match.group(1) if match else None
+    ref = parse_arxiv_ref(url)
+    return ref.fetch_id if ref else None
 
 
 def search(query: str, *, n: int, workspace: Workspace) -> dict:

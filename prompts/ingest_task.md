@@ -2,13 +2,15 @@
 
 Compile one source into a single page under `wiki/sources/`.
 
-1. If the source is not yet extracted, run `python3 scripts/extract.py <input>`
-   (arxiv id/URL, http(s) URL, or local file). It writes
-   `extracted/<work_id>/text.md` and prints the `source_page` path to write,
-   plus the `work_id`, `version_id`, and `reading_surface` for the frontmatter.
-   The filename is a deterministic function of the work, so re-ingesting the
-   same source lands on the same file — write to the path it prints; do not
-   hand-derive it.
+1. Run `python3 scripts/extract.py <input>` when the source is not yet extracted
+   or when checking a requested update. It writes
+   `extracted/<work_id>/text.md` and prints the exact `source_page`, `work_id`,
+   `version_id`, `reading_surface`, and `source` frontmatter. Web/local defaults
+   are collision-resistant functions of the source locator; `--work-id` is the
+   stable identity override. Write only to the printed source-page path. If a
+   changed surface is the same work and the user requested an update, re-run
+   with `--refresh`, then update the source page and commit both tracked files
+   together. Never use refresh to resolve a collision between distinct works.
 2. Read the reading surface in full. Read related wiki pages (search
    `wiki/sources/`, `wiki/concepts/`, `wiki/syntheses/` for the topic) so you
    can place the source and surface any tension.
@@ -25,8 +27,10 @@ pairs in the template show each shape.
 Quote verbatim in `> blockquotes` only when the wording carries evidence; one or
 two is plenty. Record genuine conflicts under `## Tensions`. Let
 `tastes/active.md` shape what you foreground, not the structure. Do not create
-concept/entity/synthesis pages here — those come from organize.
+any durable page here: targeted synthesis belongs to `synthesize`; discovered
+concept, entity, synthesis, and hub boundaries belong to `organize`.
 
 Then run the binding floor (`check_wiki.py` → fix any failures → `indexes.py`;
 `lint.py` is advisory). Return `NO_OP: <reason>` if the same version is already
-covered at equal or greater depth.
+covered at equal or greater depth. A user selection containing several sources
+is several complete ingest operations, never one multi-source page.

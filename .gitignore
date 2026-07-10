@@ -6,9 +6,10 @@ __pycache__/
 *.pyc
 .venv/
 *.tmp
+.pi-subagents/
 
-# Original downloaded material is large and re-fetchable; the wiki and the
-# extracted reading surfaces are the tracked assets.
+# Current source captures are gitignored; the wiki and extracted reading
+# surfaces are the tracked assets.
 raw/*
 !raw/.gitkeep
 

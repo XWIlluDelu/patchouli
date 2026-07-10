@@ -1,17 +1,19 @@
 # Task: synthesize
 
 Discover a genuine cross-work pattern, tension, or mechanism in the compiled
-wiki and write it to `wiki/syntheses/<slug>.md`. The topic the user names is a
-hint, not a mandate — let the real relation emerge from the source and synthesis
-bodies you read.
+wiki and write it to `wiki/syntheses/<slug>.md`. The topic the user names fixes
+the scope; let the precise thesis emerge from the source and synthesis bodies
+you read within that scope. If no genuine relation holds there, return a no-op
+rather than substituting a different topic.
 
 No-op if fewer than two works genuinely relate. When synthesis is justified,
 follow the synthesis template in `system/page_templates.md`: one contestable
 thesis, the strongest counter-evidence, and a delta sentence. Weave the works
 into one argument — do not catalogue contributions side by side. Compare what
 each work assumes, measures, and concludes; where they differ, name the
-methodological or theoretical reason. Carry `(Works: …)` markers and end with
-`## Supporting works`. Use the optional Evidence/Claim-status blocks only when
+methodological or theoretical reason. Mark cross-work inferences as
+`(synthesis across Works: …)` and end with `## Supporting works`. Use the
+optional Evidence/Claim-status blocks only when
 they make grounding scannable.
 
 Let `tastes/active.md` shape which cross-work pattern you foreground, not the

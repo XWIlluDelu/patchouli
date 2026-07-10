@@ -15,7 +15,10 @@ under `wiki/` is touched.
    whole list into chat unless asked — the file is the record.
 3. Stop. Do not ingest anything. The user decides which candidates to ingest and
    will say so in a follow-up (e.g. "ingest the first two", or "ingest
-   1706.03762").
+   1706.03762"). Resolve ordinal selections against the named search file, or
+   the latest file only when unambiguous. Several selections become separate
+   complete ingest operations and commits; report each result and never combine
+   the works into one source page.
 
 If Exa returns nothing useful, reformulate the query once yourself — broader if
 the direction was narrow, more specific if it was flooded — and re-run before

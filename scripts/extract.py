@@ -1,54 +1,69 @@
-"""Unified ingest extraction for Patchouli.
+"""Unified source extraction for Patchouli.
 
-Dispatches by input type and writes a clean reading surface the agent then
-compiles into a source page:
+Dispatches by input type and writes the reading surface the agent compiles into a
+source page:
 
     python3 scripts/extract.py <input> [--work-id ID] [--refresh]
 
-    <input> is one of
-      - an arxiv id or arxiv URL  -> arxiv API (metadata) + ar5iv (body), no key
-      - an http(s) URL            -> Firecrawl (needs FIRECRAWL_API_KEY in .env)
-      - a local file (.pdf/.html/.md/.txt) -> local extraction
+Inputs:
+  - arxiv id or arxiv URL: arxiv API metadata + ar5iv body, no key
+  - http(s) URL: Firecrawl, using FIRECRAWL_API_KEY
+  - local .pdf/.html/.md/.txt file: local extraction
 
-Outputs
-      raw/<work_id>/...            original downloaded material (provenance)
-      extracted/<work_id>/text.md  the reading surface check_wiki binds quotes to
+Outputs:
+  raw/<work_id>/...            replaceable current capture, gitignored
+  extracted/<work_id>/text.md  tracked reading surface that binds source quotes
 
-and prints work_id / version_id / reading_surface for the source frontmatter.
+A changed reading surface is rejected before either layer is written unless the
+caller passes --refresh. A refresh replaces the current capture and surface; the
+source page and surface are then committed together, so Git retains the prior
+version.
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
+import hashlib
+from html.parser import HTMLParser
+import io
 import json
+from pathlib import Path
 import re
 import shutil
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
-from html.parser import HTMLParser
-from pathlib import Path
 
-from env_loader import with_key_retry, KeyRetry, KeyPoolExhausted
+from env_loader import KeyPoolExhausted, KeyRetry, with_key_retry
 from file_state import atomic_write_bytes, atomic_write_text
-from text_helpers import content_version_id, slugify
+from text_helpers import ArxivRef, content_version_id, is_valid_work_id, parse_arxiv_ref, slugify
 from workspace_paths import Workspace
 
 USER_AGENT = "Patchouli/1.0 (research wiki ingest)"
 TIMEOUT = 30
-ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(v\d+)?")
 ARXIV_API = "https://export.arxiv.org/api/query?id_list={id}&max_results=1"
 AR5IV = "https://ar5iv.labs.arxiv.org/html/{id}"
 FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
 ATOM = {"a": "http://www.w3.org/2005/Atom"}
-# Tags whose start/end is a textual block boundary in the reading surface.
-_BLOCK_TAGS = {"p", "div", "section", "article", "li", "tr", "br", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "td", "th"}
+_BLOCK_TAGS = {
+    "p", "div", "section", "article", "li", "tr", "br", "h1", "h2",
+    "h3", "h4", "h5", "h6", "blockquote", "pre", "td", "th",
+}
 _DROP_TAGS = {"script", "style", "head", "nav", "footer"}
 
 
+@dataclass(frozen=True)
+class Extraction:
+    work_id: str
+    source: str
+    text: str
+    raw_files: tuple[tuple[str, bytes], ...]
+
+
 class _TextExtractor(HTMLParser):
-    """Collapse HTML to readable text. If the document has an <article> (ar5iv
-    wraps the paper in one), only its text is kept, dropping site chrome."""
+    """Collapse HTML to text, preferring an article element when present."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -87,12 +102,12 @@ class _TextExtractor(HTMLParser):
 
     def text(self) -> str:
         raw = "".join(self._article if self._has_article else self._all)
-        lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in raw.splitlines()]
+        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in raw.splitlines()]
         out: list[str] = []
         blank = False
-        for ln in lines:
-            if ln:
-                out.append(ln)
+        for line in lines:
+            if line:
+                out.append(line)
                 blank = False
             elif not blank:
                 out.append("")
@@ -114,154 +129,240 @@ def _get(url: str) -> bytes:
 
 def _post_json(url: str, payload: dict, headers: dict) -> dict:
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT, "Content-Type": "application/json", **headers})
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json", **headers},
+    )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
         return json.loads(resp.read())
 
 
-def _arxiv_id(value: str) -> str | None:
-    match = ARXIV_ID_RE.search(value)
-    if match and ("arxiv" in value.lower() or value.strip() == match.group(0)):
-        return match.group(1)
-    return None
+def _validate_work_id(value: str) -> str:
+    if not is_valid_work_id(value):
+        raise SystemExit(
+            f"invalid work_id {value!r}; use one path-safe segment containing only "
+            "letters, digits, dot, underscore, or hyphen"
+        )
+    return value
 
 
-def extract_arxiv(arxiv_id: str, ws: Workspace) -> tuple[str, str]:
-    work_id = arxiv_id
+def _normalize_url(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        raise SystemExit(f"invalid web URL: {url!r}")
+    if parts.username is not None or parts.password is not None:
+        raise SystemExit("credential-bearing URLs are not accepted; use a public source URL")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path or "/", parts.query, ""))
+
+
+def _locator_work_id(label: str, locator: str) -> str:
+    base = slugify(label, fallback="source", max_length=80)
+    digest = hashlib.sha256(locator.encode("utf-8")).hexdigest()[:10]
+    return _validate_work_id(f"{base}-{digest}")
+
+
+def _local_source(path: Path, workspace: Workspace) -> str:
     try:
-        meta_xml = _get(ARXIV_API.format(id=arxiv_id))
+        return workspace.relpath(path)
+    except ValueError:
+        return path.as_uri()
+
+
+def extract_arxiv(ref: ArxivRef) -> Extraction:
+    try:
+        meta_xml = _get(ARXIV_API.format(id=ref.fetch_id))
     except urllib.error.URLError as exc:
         raise SystemExit(f"could not reach the arxiv API ({exc.reason}); network issue, retry")
-    atomic_write_bytes(ws.abspath(ws.raw / work_id / "arxiv-metadata.xml"), meta_xml)
+
     entry = ET.fromstring(meta_xml).find("a:entry", ATOM)
     if entry is None:
-        raise SystemExit(f"arxiv: no metadata entry for {arxiv_id}")
-    title = " ".join(entry.find("a:title", ATOM).text.split())
-    authors = ", ".join(a.find("a:name", ATOM).text for a in entry.findall("a:author", ATOM))
-    published = (entry.find("a:published", ATOM).text or "")[:10]
-    year = published[:4]
-    abstract = " ".join((entry.find("a:summary", ATOM).text or "").split())
+        raise SystemExit(f"arxiv: no metadata entry for {ref.fetch_id}")
+    title = " ".join((entry.findtext("a:title", default="", namespaces=ATOM)).split())
+    authors = ", ".join(
+        name
+        for author in entry.findall("a:author", ATOM)
+        if (name := author.findtext("a:name", default="", namespaces=ATOM))
+    )
+    published = entry.findtext("a:published", default="", namespaces=ATOM)[:10]
+    abstract = " ".join(entry.findtext("a:summary", default="", namespaces=ATOM).split())
 
-    body = ""
+    raw_files: list[tuple[str, bytes]] = [("arxiv-metadata.xml", meta_xml)]
     try:
-        html = _get(AR5IV.format(id=arxiv_id)).decode("utf-8", "replace")
-        atomic_write_bytes(ws.abspath(ws.raw / work_id / "ar5iv.html"), html.encode("utf-8"))
-        body = html_to_text(html)
+        html_bytes = _get(AR5IV.format(id=ref.fetch_id))
+        raw_files.append(("ar5iv.html", html_bytes))
+        body = html_to_text(html_bytes.decode("utf-8", "replace"))
     except (urllib.error.URLError, OSError) as exc:
         body = f"[ar5iv body unavailable: {exc}; reading surface holds the abstract only]"
 
-    header = (
+    source = f"https://arxiv.org/abs/{ref.fetch_id}"
+    text = (
         f"# {title}\n\n"
+        f"- Source: {source}\n"
         f"- Authors: {authors}\n"
-        f"- Year: {year}\n"
-        f"- arXiv: {arxiv_id}\n"
-        f"- Abstract page: https://arxiv.org/abs/{arxiv_id}\n"
-        f"- Body source: {AR5IV.format(id=arxiv_id)}\n"
+        f"- Year: {published[:4]}\n"
+        f"- arXiv: {ref.fetch_id}\n"
+        f"- Body source: {AR5IV.format(id=ref.fetch_id)}\n\n"
+        f"## Abstract\n\n{abstract}\n\n## Body\n\n{body}\n"
     )
-    text = f"{header}\n## Abstract\n\n{abstract}\n\n## Body\n\n{body}\n"
-    return work_id, text
+    return Extraction(ref.work_id, source, text, tuple(raw_files))
 
 
-def extract_url(url: str, ws: Workspace, work_id: str | None) -> tuple[str, str]:
+def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extraction:
+    source = _normalize_url(url)
+
     def _try(key: str) -> dict:
         try:
-            return _post_json(FIRECRAWL_ENDPOINT, {"url": url, "formats": ["markdown"]}, {"Authorization": f"Bearer {key}"})
+            return _post_json(
+                FIRECRAWL_ENDPOINT,
+                {"url": source, "formats": ["markdown"]},
+                {"Authorization": f"Bearer {key}"},
+            )
         except urllib.error.HTTPError as exc:
-            # 401/403 = bad key; 429 = rate-limited; 5xx = server. All retryable
-            # across another key. Other 4xx are real failures.
             if exc.code in (401, 403, 429) or 500 <= exc.code < 600:
-                raise KeyRetry(f"firecrawl key failed ({exc.code}): {exc.read().decode('utf-8', 'replace')[:200]}")
-            raise SystemExit(f"firecrawl request failed ({exc.code}): {exc.read().decode('utf-8', 'replace')[:300]}")
+                detail = exc.read().decode("utf-8", "replace")[:200]
+                raise KeyRetry(f"firecrawl key failed ({exc.code}): {detail}")
+            detail = exc.read().decode("utf-8", "replace")[:300]
+            raise SystemExit(f"firecrawl request failed ({exc.code}): {detail}")
         except urllib.error.URLError as exc:
-            # Connection-level failure (timeout, DNS, refused): not a key problem,
-            # so do not rotate keys — fail cleanly and let the caller re-run.
-            raise SystemExit(f"could not reach Firecrawl ({exc.reason}); transient network or endpoint down, retry")
+            raise SystemExit(
+                f"could not reach Firecrawl ({exc.reason}); transient network or endpoint down, retry"
+            )
 
     try:
-        result = with_key_retry(ws.root / ".env", "FIRECRAWL_API_KEY", _try)
+        result = with_key_retry(workspace.root / ".env", "FIRECRAWL_API_KEY", _try)
     except KeyPoolExhausted as exc:
-        raise SystemExit(f"web ingest needs FIRECRAWL_API_KEY and all keys failed; set one in .env (see .env.example), or ingest an arxiv id / local file instead. Last error: {exc}")
+        raise SystemExit(
+            "web ingest needs FIRECRAWL_API_KEY and all keys failed; set one in .env "
+            f"(see .env.example), or ingest an arxiv id / local file instead. Last error: {exc}"
+        )
     data = result.get("data") or {}
     markdown = data.get("markdown") or ""
     if not markdown:
-        raise SystemExit(f"firecrawl returned no markdown for {url}: {json.dumps(result)[:300]}")
-    title = (data.get("metadata") or {}).get("title") or url
-    work_id = work_id or slugify(title, fallback=slugify(re.sub(r"^https?://", "", url)))
-    atomic_write_bytes(ws.abspath(ws.raw / work_id / "firecrawl.json"), json.dumps(result, indent=2).encode("utf-8"))
-    text = f"# {title}\n\n- Source: {url}\n\n{markdown}\n"
-    return work_id, text
+        raise SystemExit(f"firecrawl returned no markdown for {source}: {json.dumps(result)[:300]}")
+    title = (data.get("metadata") or {}).get("title") or source
+    if work_id is None:
+        parts = urlsplit(source)
+        work_id = _locator_work_id(f"{parts.netloc}{parts.path}", source)
+    raw = json.dumps(result, indent=2, ensure_ascii=False).encode("utf-8")
+    text = f"# {title}\n\n- Source: {source}\n\n{markdown}\n"
+    return Extraction(work_id, source, text, (("firecrawl.json", raw),))
 
 
-def extract_file(path: Path, ws: Workspace, work_id: str | None) -> tuple[str, str]:
-    work_id = work_id or slugify(path.stem)
+def extract_file(path: Path, workspace: Workspace, work_id: str | None) -> Extraction:
+    path = path.resolve()
+    raw_bytes = path.read_bytes()
+    source = _local_source(path, workspace)
+    if work_id is None:
+        work_id = _locator_work_id(path.stem, source)
     ext = path.suffix.lower()
     if ext == ".pdf":
         try:
             import pypdf
         except ImportError:
-            raise SystemExit("ingesting a local .pdf needs pypdf: `uv pip install -r requirements.txt` (in the project venv), or host the PDF and ingest its URL")
-        reader = pypdf.PdfReader(str(path))
+            raise SystemExit(
+                "ingesting a local .pdf needs pypdf: `uv pip install -r requirements.txt` "
+                "(in the project venv), or host the PDF and ingest its URL"
+            )
+        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
         body = "\n\n".join((page.extract_text() or "") for page in reader.pages)
     elif ext in {".html", ".htm"}:
-        body = html_to_text(path.read_text(encoding="utf-8", errors="replace"))
+        body = html_to_text(raw_bytes.decode("utf-8", "replace"))
     else:
-        body = path.read_text(encoding="utf-8", errors="replace")
-    raw_copy = ws.abspath(ws.raw / work_id / path.name)
-    raw_copy.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(path, raw_copy)
-    text = f"# {path.stem}\n\n- Source file: {path.name}\n\n{body}\n"
-    return work_id, text
+        body = raw_bytes.decode("utf-8", "replace")
+    text = f"# {path.stem}\n\n- Source: {source}\n\n{body}\n"
+    return Extraction(work_id, source, text, ((path.name, raw_bytes),))
 
 
-def _source_page(work_id: str, title: str, *, is_arxiv: bool) -> str:
-    """Deterministic source-page path for a work, so a re-ingest lands on the same file.
-    An opaque arxiv id gets the first three title words appended for legibility; a
-    title-derived work_id (web, file) is already legible and stands alone."""
-    if is_arxiv:
-        suffix = slugify(" ".join(title.split()[:3]), fallback=work_id)
-        return f"wiki/sources/{work_id}-{suffix}.md"
+def _source_page(work_id: str) -> str:
     return f"wiki/sources/{work_id}.md"
+
+
+def _publish(extraction: Extraction, workspace: Workspace, surface: Path) -> None:
+    raw_dir = workspace.confined(workspace.raw, extraction.work_id)
+    expected: set[str] = set()
+    for name, content in extraction.raw_files:
+        if Path(name).name != name:
+            raise ValueError(f"raw artifact name must be one path segment: {name!r}")
+        expected.add(name)
+        target = workspace.confined(workspace.raw, extraction.work_id, name)
+        if not target.exists() or target.read_bytes() != content:
+            atomic_write_bytes(target, content)
+    if raw_dir.exists():
+        for stale in raw_dir.iterdir():
+            if stale.name in expected:
+                continue
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale)
+            else:
+                stale.unlink()
+    surface_bytes = extraction.text.encode("utf-8")
+    if not surface.exists() or surface.read_bytes() != surface_bytes:
+        atomic_write_text(surface, extraction.text)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Extract a source into extracted/<work_id>/text.md")
     parser.add_argument("input", help="arxiv id/URL, http(s) URL, or local file path")
-    parser.add_argument("--work-id", default=None, help="override the derived work_id")
-    parser.add_argument("--refresh", action="store_true", help="replace an existing reading surface whose content changed; the source page must then be updated to the new version_id")
+    parser.add_argument("--work-id", default=None, help="stable path-safe identity override for a web or local source")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="replace a changed current capture/surface; update and commit its source page in the same ingest",
+    )
     args = parser.parse_args(argv)
-    ws = Workspace.from_path(None)
+    workspace = Workspace.from_path(None)
+    explicit_work_id = _validate_work_id(args.work_id) if args.work_id else None
 
     value = args.input.strip()
-    arxiv_id = _arxiv_id(value)
-    if arxiv_id:
-        work_id, text = extract_arxiv(arxiv_id, ws)
+    arxiv_ref = parse_arxiv_ref(value)
+    if arxiv_ref:
+        if explicit_work_id and explicit_work_id != arxiv_ref.work_id:
+            raise SystemExit("arxiv work_id is its stable base id; --work-id cannot override it")
+        extraction = extract_arxiv(arxiv_ref)
     elif value.startswith(("http://", "https://")):
-        work_id, text = extract_url(value, ws, args.work_id)
+        extraction = extract_url(value, workspace, explicit_work_id)
     elif Path(value).is_file():
-        work_id, text = extract_file(Path(value), ws, args.work_id)
+        extraction = extract_file(Path(value), workspace, explicit_work_id)
     else:
-        raise SystemExit(f"unrecognized input: {value!r} (not an arxiv id, an http(s) URL, or an existing file)")
+        raise SystemExit(
+            f"unrecognized input: {value!r} (not an arxiv id, an http(s) URL, or an existing file)"
+        )
 
-    out = ws.abspath(ws.extracted / work_id / "text.md")
-    version_id = content_version_id(text)
-    if out.exists() and not args.refresh:
-        existing = content_version_id(out.read_bytes())
+    work_id = _validate_work_id(extraction.work_id)
+    try:
+        surface = workspace.confined(workspace.extracted, work_id, "text.md")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    version_id = content_version_id(extraction.text)
+    if surface.exists() and not args.refresh:
+        existing = content_version_id(surface.read_bytes())
         if existing != version_id:
             raise SystemExit(
-                f"{ws.relpath(out)} already exists with different content (existing {existing}, new {version_id}); "
-                "it is the quote-binding anchor for its source page, so it is never replaced silently. "
-                "Re-run with --refresh to replace it, then update the source page against the new surface."
+                f"{workspace.relpath(surface)} already exists with different content "
+                f"(existing {existing}, new {version_id}); no artifact was changed. "
+                "If this is a new version of the same work, re-run with --refresh, then "
+                "re-read and update the source page in the same commit. If it is a distinct "
+                "web/local work, re-run with a stable explicit --work-id."
             )
-    atomic_write_text(out, text)
-    title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), work_id)
-    source_page = _source_page(work_id, title, is_arxiv=arxiv_id is not None)
-    print(f"extracted. write the source page to:\n  {source_page}")
+
+    try:
+        _publish(extraction, workspace, surface)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    title = next(
+        (line[2:].strip() for line in extraction.text.splitlines() if line.startswith("# ")),
+        work_id,
+    )
+    print(f"extracted. write the source page to:\n  {_source_page(work_id)}")
     print("put these in its frontmatter:")
+    print(f"  title: {json.dumps(title, ensure_ascii=False)}")
+    print("  page_type: source")
     print(f"  work_id: {work_id}")
     print(f"  version_id: {version_id}")
-    print(f"  reading_surface: {ws.relpath(out)}")
-    print(f"  title: {title}")
-    print(f"  (reading surface is {len(text):,} chars)")
+    print(f"  reading_surface: {workspace.relpath(surface)}")
+    print(f"  source: {json.dumps(extraction.source, ensure_ascii=False)}")
+    print(f"  (reading surface is {len(extraction.text):,} chars)")
     return 0
 
 
