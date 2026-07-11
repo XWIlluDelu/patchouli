@@ -1,4 +1,4 @@
-"""Tests for extraction identity, confinement, and write ordering."""
+"""Tests for extraction content, identity, confinement, and publication."""
 
 from __future__ import annotations
 
@@ -16,6 +16,38 @@ sys.path.insert(0, str(SCRIPTS))
 
 import extract  # noqa: E402
 from workspace_paths import Workspace  # noqa: E402
+
+
+def minimal_pdf(text: str) -> bytes:
+    escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    content = f"BT /F1 24 Tf 72 720 Td ({escaped}) Tj ET".encode("ascii")
+    objects = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+        b"4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        b"5 0 obj\n<< /Length "
+        + str(len(content)).encode("ascii")
+        + b" >>\nstream\n"
+        + content
+        + b"\nendstream\nendobj\n",
+    ]
+    document = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(document))
+        document.extend(obj)
+    xref = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        document.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    document.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(document)
 
 
 class SurfaceGuard(unittest.TestCase):
@@ -210,6 +242,146 @@ class SourceIdentity(unittest.TestCase):
 
     def test_source_page_path_depends_only_on_work_id(self):
         self.assertEqual(extract._source_page("1706.03762"), "wiki/sources/1706.03762.md")
+
+
+class LocalContent(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.ws = Workspace.from_path(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_unsupported_binary_is_rejected_before_read(self):
+        path = self.root / "paper.docx"
+        path.write_bytes(b"PK fake office archive")
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("must not read")):
+            with self.assertRaisesRegex(SystemExit, "unsupported local file type"):
+                extract.extract_file(path, self.ws, None)
+
+    def test_text_input_must_be_utf8(self):
+        path = self.root / "paper.txt"
+        path.write_bytes(b"\xff\xfe")
+        with self.assertRaisesRegex(SystemExit, "not valid UTF-8"):
+            extract.extract_file(path, self.ws, None)
+
+    def test_pdf_uses_structured_converter_on_captured_bytes(self):
+        path = self.root / "extracted-title.pdf"
+        captured = b"%PDF captured once"
+        path.write_bytes(captured)
+        markdown = (
+            "## Extracted title\n\n## Abstract\n\n"
+            "| Method | Score |\n|---|---|\n| A | 98 |\n"
+        )
+        with patch.object(extract, "pdf_to_markdown", return_value=markdown) as convert:
+            result = extract.extract_file(path, self.ws, None)
+        convert.assert_called_once_with(captured, "extracted-title.pdf")
+        self.assertTrue(result.text.startswith("# Extracted title\n\n- Source:"))
+        self.assertEqual(result.text.count("Extracted title"), 1)
+        self.assertIn("| Method | Score |", result.text)
+        self.assertEqual(result.raw_files, (("extracted-title.pdf", captured),))
+
+    def test_abstract_does_not_turn_first_section_into_title(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF captured once")
+        markdown = "## Introduction\n\nBody.\n\n## Abstract\n\nSummary.\n"
+        with patch.object(extract, "pdf_to_markdown", return_value=markdown):
+            result = extract.extract_file(path, self.ws, None)
+        self.assertTrue(result.text.startswith("# paper\n\n- Source:"))
+        self.assertIn("## Introduction\n\nBody.", result.text)
+        self.assertIn("## Abstract\n\nSummary.", result.text)
+
+    def test_markdown_without_title_keeps_first_section(self):
+        path = self.root / "paper.md"
+        path.write_text("## Methods\n\nBody.\n", encoding="utf-8")
+        result = extract.extract_file(path, self.ws, None)
+        self.assertTrue(result.text.startswith("# paper\n\n- Source:"))
+        self.assertIn("## Methods\n\nBody.", result.text)
+
+    def test_title_cleanup_never_removes_a_later_heading(self):
+        markdown = "# Other\n\n## Introduction\n\nBody.\n"
+        self.assertEqual(
+            extract._drop_title_heading(markdown, "Introduction"),
+            markdown,
+        )
+
+    def test_html_preserves_structure(self):
+        path = self.root / "paper.html"
+        path.write_text(
+            "<html><body><nav>menu</nav><article><h1>Structured title</h1>"
+            "<p>Strong <b>evidence</b>.</p><table><tr><th>A</th><th>B</th></tr>"
+            "<tr><td>1</td><td>2</td></tr></table></article></body></html>",
+            encoding="utf-8",
+        )
+        result = extract.extract_file(path, self.ws, None)
+        self.assertTrue(result.text.startswith("# Structured title\n\n- Source:"))
+        self.assertEqual(result.text.count("Structured title"), 1)
+        self.assertIn("**evidence**", result.text)
+        self.assertRegex(result.text, r"\|\s+A\s+\|\s+B\s+\|")
+        self.assertNotIn("menu", result.text)
+
+    def test_pdf_initialization_failure_is_reported(self):
+        with patch.object(
+            extract,
+            "_pdf_pipeline_options",
+            side_effect=RuntimeError("initialization failed"),
+        ):
+            with self.assertRaisesRegex(SystemExit, "could not convert PDF to Markdown"):
+                extract.pdf_to_markdown(b"%PDF", "paper.pdf")
+
+    def test_pdf_pipeline_options_are_pinned_and_enabled(self):
+        options = extract._pdf_pipeline_options()
+        self.assertTrue(options.do_ocr)
+        self.assertTrue(options.do_table_structure)
+        self.assertTrue(options.do_formula_enrichment)
+        self.assertEqual(options.ocr_options.backend, "onnxruntime")
+        self.assertEqual(options.ocr_options.lang, ["chinese"])
+        self.assertEqual(
+            options.layout_options.model_spec.revision,
+            extract.DOCLING_LAYOUT_REVISION,
+        )
+        self.assertEqual(
+            options.code_formula_options.model_spec.revision,
+            extract.DOCLING_FORMULA_REVISION,
+        )
+        self.assertTrue(options.heading_hierarchy_options.enabled)
+        self.assertFalse(options.enable_remote_services)
+
+    def test_identical_pdf_reuses_surface_without_conversion(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF stable capture")
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            with patch.object(extract, "pdf_to_markdown", return_value="# Paper\n\nBody.\n"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(
+                        extract.main([str(path), "--work-id", "paper"]),
+                        0,
+                    )
+            with patch.object(
+                extract,
+                "pdf_to_markdown",
+                side_effect=AssertionError("identical PDF must not be reconverted"),
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(
+                        extract.main([str(path), "--work-id", "paper"]),
+                        0,
+                    )
+        finally:
+            os.chdir(cwd)
+
+    @unittest.skipUnless(
+        os.environ.get("PATCHOULI_PDF_INTEGRATION") == "1",
+        "set PATCHOULI_PDF_INTEGRATION=1 to run the model-backed PDF smoke test",
+    )
+    def test_docling_pdf_integration(self):
+        path = self.root / "integration.pdf"
+        path.write_bytes(minimal_pdf("Patchouli PDF Integration"))
+        result = extract.extract_file(path, self.ws, None)
+        self.assertIn("Patchouli PDF Integration", result.text)
 
 
 if __name__ == "__main__":

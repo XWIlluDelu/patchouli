@@ -8,7 +8,7 @@ source page:
 Inputs:
   - arxiv id or arxiv URL: arxiv API metadata + ar5iv body, no key
   - http(s) URL: Firecrawl, using FIRECRAWL_API_KEY
-  - local .pdf/.html/.md/.txt file: local extraction
+  - local .pdf/.html/.htm/.md/.txt file: local extraction
 
 Outputs:
   raw/<work_id>/...            replaceable current capture, gitignored
@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import filecmp
 import hashlib
-from html.parser import HTMLParser
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -47,11 +48,9 @@ ARXIV_API = "https://export.arxiv.org/api/query?id_list={id}&max_results=1"
 AR5IV = "https://ar5iv.labs.arxiv.org/html/{id}"
 FIRECRAWL_ENDPOINT = "https://api.firecrawl.dev/v1/scrape"
 ATOM = {"a": "http://www.w3.org/2005/Atom"}
-_BLOCK_TAGS = {
-    "p", "div", "section", "article", "li", "tr", "br", "h1", "h2",
-    "h3", "h4", "h5", "h6", "blockquote", "pre", "td", "th",
-}
-_DROP_TAGS = {"script", "style", "head", "nav", "footer"}
+SUPPORTED_LOCAL_SUFFIXES = {".pdf", ".html", ".htm", ".md", ".txt"}
+DOCLING_LAYOUT_REVISION = "8f39ad3c0b4c58e9c2d2c84a38465abf757272d8"
+DOCLING_FORMULA_REVISION = "ecedbe111d15c2dc60bfd4a823cbe80127b58af4"
 
 
 @dataclass(frozen=True)
@@ -62,63 +61,140 @@ class Extraction:
     raw_files: tuple[tuple[str, bytes], ...]
 
 
-class _TextExtractor(HTMLParser):
-    """Collapse HTML to text, preferring an article element when present."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._all: list[str] = []
-        self._article: list[str] = []
-        self._drop_depth = 0
-        self._article_depth = 0
-        self._has_article = False
-
-    def _emit(self, chunk: str) -> None:
-        if self._drop_depth:
-            return
-        self._all.append(chunk)
-        if self._article_depth > 0:
-            self._article.append(chunk)
-
-    def handle_starttag(self, tag: str, attrs: list) -> None:
-        if tag in _DROP_TAGS:
-            self._drop_depth += 1
-        if tag == "article":
-            self._has_article = True
-            self._article_depth += 1
-        if tag in _BLOCK_TAGS:
-            self._emit("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in _BLOCK_TAGS:
-            self._emit("\n")
-        if tag in _DROP_TAGS and self._drop_depth:
-            self._drop_depth -= 1
-        if tag == "article" and self._article_depth:
-            self._article_depth -= 1
-
-    def handle_data(self, data: str) -> None:
-        self._emit(data)
-
-    def text(self) -> str:
-        raw = "".join(self._article if self._has_article else self._all)
-        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in raw.splitlines()]
-        out: list[str] = []
-        blank = False
-        for line in lines:
-            if line:
-                out.append(line)
-                blank = False
-            elif not blank:
-                out.append("")
-                blank = True
-        return "\n".join(out).strip() + "\n"
+def _clean_markdown(markdown: str) -> str:
+    return markdown.strip() + "\n" if markdown.strip() else ""
 
 
-def html_to_text(html: str) -> str:
-    parser = _TextExtractor()
-    parser.feed(html)
-    return parser.text()
+def html_to_markdown(html: str) -> str:
+    """Convert captured HTML into structured Markdown without executing it."""
+
+    try:
+        from bs4 import BeautifulSoup
+        from markdownify import markdownify
+    except ImportError as exc:
+        raise SystemExit(
+            "HTML extraction needs Beautiful Soup and markdownify: "
+            "`uv pip install -r requirements.txt`"
+        ) from exc
+
+    soup = BeautifulSoup(html, "html.parser")
+    for element in soup.select("script, style, head, nav, footer"):
+        element.decompose()
+    root = soup.find("article") or soup.body or soup
+    markdown = _clean_markdown(markdownify(str(root), heading_style="ATX", bullets="-"))
+    if not markdown:
+        raise SystemExit("HTML conversion produced no readable content")
+    return markdown
+
+
+def _pdf_pipeline_options():
+    from docling.datamodel.accelerator_options import (
+        AcceleratorDevice,
+        AcceleratorOptions,
+    )
+    from docling.datamodel.layout_model_specs import DOCLING_LAYOUT_HERON
+    from docling.datamodel.pipeline_options import (
+        CodeFormulaVlmOptions,
+        HeadingHierarchyOptions,
+        LayoutOptions,
+        PdfPipelineOptions,
+        RapidOcrOptions,
+    )
+
+    layout_spec = DOCLING_LAYOUT_HERON.model_copy(
+        update={"revision": DOCLING_LAYOUT_REVISION}
+    )
+    code_formula = CodeFormulaVlmOptions.from_preset("codeformulav2")
+    code_formula = code_formula.model_copy(
+        update={
+            "model_spec": code_formula.model_spec.model_copy(
+                update={"revision": DOCLING_FORMULA_REVISION}
+            )
+        }
+    )
+    return PdfPipelineOptions(
+        accelerator_options=AcceleratorOptions(
+            device=AcceleratorDevice.AUTO,
+            num_threads=min(8, os.cpu_count() or 1),
+        ),
+        do_ocr=True,
+        ocr_options=RapidOcrOptions(backend="onnxruntime", lang=["chinese"]),
+        do_table_structure=True,
+        do_formula_enrichment=True,
+        layout_options=LayoutOptions(model_spec=layout_spec),
+        code_formula_options=code_formula,
+        heading_hierarchy_options=HeadingHierarchyOptions(
+            enabled=True,
+            use_bookmarks=True,
+            use_numbering=True,
+            use_style=False,
+        ),
+        enable_remote_services=False,
+    )
+
+
+def pdf_to_markdown(data: bytes, name: str) -> str:
+    """Convert one captured PDF with the benchmarked local Docling pipeline."""
+
+    try:
+        from docling.datamodel.base_models import DocumentStream, InputFormat
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.exceptions import ConversionError
+    except ImportError as exc:
+        raise SystemExit(
+            "ingesting a local .pdf needs Docling: `uv pip install -r requirements.txt`"
+        ) from exc
+
+    try:
+        options = _pdf_pipeline_options()
+        converter = DocumentConverter(
+            allowed_formats=[InputFormat.PDF],
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
+        )
+        stream = DocumentStream(name=name, stream=io.BytesIO(data))
+        result = converter.convert(stream, raises_on_error=True)
+        markdown = _clean_markdown(
+            result.document.export_to_markdown(compact_tables=False)
+        )
+    except (ConversionError, OSError, RuntimeError) as exc:
+        raise SystemExit(f"could not convert PDF to Markdown: {exc}") from exc
+    if not any(character.isalnum() for character in markdown):
+        raise SystemExit(
+            "PDF conversion produced no readable text; the document may be blank, "
+            "encrypted, damaged, or beyond the OCR pipeline"
+        )
+    return markdown
+
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", flags=re.MULTILINE)
+
+
+def _heading_text(markdown_heading: str) -> str:
+    return re.sub(r"[*_`]+", "", markdown_heading).strip()
+
+
+def _markdown_title(markdown: str, fallback: str, *, structured: bool = False) -> str:
+    first = _HEADING_RE.search(markdown)
+    if first is None:
+        return fallback
+    title = _heading_text(first.group(2))
+    if first.group(1) == "#" and not markdown[: first.start()].strip():
+        return title or fallback
+    if structured and slugify(title) == slugify(fallback):
+        return title or fallback
+    return fallback
+
+
+def _drop_title_heading(
+    markdown: str, title: str, *, authoritative: bool = False
+) -> str:
+    first = _HEADING_RE.search(markdown)
+    if first is None or _heading_text(first.group(2)).casefold() != title.casefold():
+        return markdown
+    leading_title = first.group(1) == "#" and not markdown[: first.start()].strip()
+    if not leading_title and not authoritative:
+        return markdown
+    return _clean_markdown(markdown[: first.start()] + markdown[first.end() :])
 
 
 def _get(url: str) -> bytes:
@@ -169,6 +245,43 @@ def _local_source(path: Path, workspace: Workspace) -> str:
         return path.as_uri()
 
 
+def _local_identity(
+    path: Path, workspace: Workspace, work_id: str | None
+) -> tuple[Path, str, str, str]:
+    path = path.resolve()
+    ext = path.suffix.lower()
+    if ext not in SUPPORTED_LOCAL_SUFFIXES:
+        supported = ", ".join(sorted(SUPPORTED_LOCAL_SUFFIXES))
+        raise SystemExit(
+            f"unsupported local file type {ext or '<none>'!r}; supported types: {supported}"
+        )
+    source = _local_source(path, workspace)
+    identity = _validate_work_id(work_id) if work_id else _locator_work_id(path.stem, source)
+    return path, ext, source, identity
+
+
+def _reusable_local_extraction(
+    path: Path, workspace: Workspace, work_id: str | None
+) -> Extraction | None:
+    path, _, source, identity = _local_identity(path, workspace, work_id)
+    try:
+        raw = workspace.confined(workspace.raw, identity, path.name)
+        surface = workspace.confined(workspace.extracted, identity, "text.md")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not raw.is_file() or not surface.is_file():
+        return None
+    if raw.stat().st_size != path.stat().st_size or not filecmp.cmp(
+        path, raw, shallow=False
+    ):
+        return None
+    text = surface.read_text(encoding="utf-8")
+    source_match = re.search(r"^- Source:\s*(.+?)\s*$", text, flags=re.MULTILINE)
+    if source_match is None or source_match.group(1) != source:
+        return None
+    return Extraction(identity, source, text, ())
+
+
 def extract_arxiv(ref: ArxivRef) -> Extraction:
     try:
         meta_xml = _get(ARXIV_API.format(id=ref.fetch_id))
@@ -191,7 +304,8 @@ def extract_arxiv(ref: ArxivRef) -> Extraction:
     try:
         html_bytes = _get(AR5IV.format(id=ref.fetch_id))
         raw_files.append(("ar5iv.html", html_bytes))
-        body = html_to_text(html_bytes.decode("utf-8", "replace"))
+        body = html_to_markdown(html_bytes.decode("utf-8", "replace"))
+        body = _drop_title_heading(body, title, authoritative=True)
     except (urllib.error.URLError, OSError) as exc:
         body = f"[ar5iv body unavailable: {exc}; reading surface holds the abstract only]"
 
@@ -241,6 +355,7 @@ def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extracti
     if not markdown:
         raise SystemExit(f"firecrawl returned no markdown for {source}: {json.dumps(result)[:300]}")
     title = (data.get("metadata") or {}).get("title") or source
+    markdown = _drop_title_heading(markdown, title, authoritative=True)
     if work_id is None:
         parts = urlsplit(source)
         work_id = _locator_work_id(f"{parts.netloc}{parts.path}", source)
@@ -250,27 +365,26 @@ def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extracti
 
 
 def extract_file(path: Path, workspace: Workspace, work_id: str | None) -> Extraction:
-    path = path.resolve()
+    path, ext, source, work_id = _local_identity(path, workspace, work_id)
     raw_bytes = path.read_bytes()
-    source = _local_source(path, workspace)
-    if work_id is None:
-        work_id = _locator_work_id(path.stem, source)
-    ext = path.suffix.lower()
     if ext == ".pdf":
-        try:
-            import pypdf
-        except ImportError:
-            raise SystemExit(
-                "ingesting a local .pdf needs pypdf: `uv pip install -r requirements.txt` "
-                "(in the project venv), or host the PDF and ingest its URL"
-            )
-        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
-        body = "\n\n".join((page.extract_text() or "") for page in reader.pages)
-    elif ext in {".html", ".htm"}:
-        body = html_to_text(raw_bytes.decode("utf-8", "replace"))
+        body = pdf_to_markdown(raw_bytes, path.name)
     else:
-        body = raw_bytes.decode("utf-8", "replace")
-    text = f"# {path.stem}\n\n- Source: {source}\n\n{body}\n"
+        try:
+            decoded = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SystemExit(f"local {ext} input is not valid UTF-8: {path}") from exc
+        body = html_to_markdown(decoded) if ext in {".html", ".htm"} else decoded
+    structured = ext in {".pdf", ".html", ".htm"}
+    title = _markdown_title(body, path.stem, structured=structured)
+    first_heading = _HEADING_RE.search(body)
+    inferred_from_name = bool(
+        structured
+        and first_heading
+        and slugify(_heading_text(first_heading.group(2))) == slugify(path.stem)
+    )
+    body = _drop_title_heading(body, title, authoritative=inferred_from_name)
+    text = f"# {title}\n\n- Source: {source}\n\n{body.rstrip()}\n"
     return Extraction(work_id, source, text, ((path.name, raw_bytes),))
 
 
@@ -316,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
 
     value = args.input.strip()
     arxiv_ref = parse_arxiv_ref(value)
+    reused = False
     if arxiv_ref:
         if explicit_work_id and explicit_work_id != arxiv_ref.work_id:
             raise SystemExit("arxiv work_id is its stable base id; --work-id cannot override it")
@@ -323,7 +438,15 @@ def main(argv: list[str] | None = None) -> int:
     elif value.startswith(("http://", "https://")):
         extraction = extract_url(value, workspace, explicit_work_id)
     elif Path(value).is_file():
-        extraction = extract_file(Path(value), workspace, explicit_work_id)
+        local_path = Path(value)
+        extraction = None
+        if not args.refresh:
+            extraction = _reusable_local_extraction(
+                local_path, workspace, explicit_work_id
+            )
+            reused = extraction is not None
+        if extraction is None:
+            extraction = extract_file(local_path, workspace, explicit_work_id)
     else:
         raise SystemExit(
             f"unrecognized input: {value!r} (not an arxiv id, an http(s) URL, or an existing file)"
@@ -346,14 +469,12 @@ def main(argv: list[str] | None = None) -> int:
                 "web/local work, re-run with a stable explicit --work-id."
             )
 
-    try:
-        _publish(extraction, workspace, surface)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    title = next(
-        (line[2:].strip() for line in extraction.text.splitlines() if line.startswith("# ")),
-        work_id,
-    )
+    if not reused:
+        try:
+            _publish(extraction, workspace, surface)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    title = _markdown_title(extraction.text, work_id)
     print(f"extracted. write the source page to:\n  {_source_page(work_id)}")
     print("put these in its frontmatter:")
     print(f"  title: {json.dumps(title, ensure_ascii=False)}")

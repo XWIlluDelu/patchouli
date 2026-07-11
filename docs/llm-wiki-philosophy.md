@@ -247,10 +247,11 @@ by reading the filesystem, writes, and, after any write to `wiki/`, runs the
 binding floor.
 
 The scripts are deliberately *not* an orchestration layer. `extract.py` turns a
-source into a clean reading surface (arxiv via the arxiv API and ar5iv, web via
-Firecrawl, local files directly) and prints the deterministic target path plus
-the provenance frontmatter. `search.py` discovers candidates via Exa into a file
-under `searches/` and touches nothing in the wiki. `check_wiki.py` is the
+source into a clean reading surface (arxiv via the arxiv API and structured
+ar5iv conversion, web via Firecrawl, local PDF through the configured Docling
+pipeline, and local HTML/Markdown/text directly) and prints the deterministic target
+path plus the provenance frontmatter. `search.py` discovers candidates via Exa
+into a file under `searches/` and touches nothing in the wiki. `check_wiki.py` is the
 objective floor; `indexes.py` rebuilds the navigation; `lint.py` advises; and
 `commit.py` confines each contract's commit to its exact files. None of them
 retrieves wiki context for the model or decides what a page should say —

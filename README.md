@@ -34,15 +34,33 @@ what gets foregrounded.
 
 ## Setup
 
-The scripts run on the Python 3 standard library alone; a bare `python3` covers
-everything except two add-ons:
+Create the environment and install the document pipeline:
 
-- Local `.pdf` ingest needs `pypdf`: `uv venv && uv pip install -r
-  requirements.txt`, then `direnv allow` (or `source .venv/bin/activate` if you
-  don't use direnv).
-- Web-page ingest uses Firecrawl and discovery uses Exa: copy `.env.example` to
-  `.env` and set `FIRECRAWL_API_KEY` / `EXA_API_KEY`. Repeating a key on
-  multiple lines pools them, with automatic failover.
+```sh
+uv venv
+uv pip install -r requirements.txt
+```
+
+On Linux, the GPU-capable PyTorch stack makes the environment about 5 GB. A
+CPU-only machine can avoid the CUDA packages by installing the CPU wheels first:
+
+```sh
+uv pip install 'torch==2.13.0' 'torchvision==0.28.0' \
+  --index-url https://download.pytorch.org/whl/cpu
+uv pip install -r requirements.txt
+```
+
+Then run `direnv allow`, or `source .venv/bin/activate` if you do not use
+direnv. PDF ingest uses Docling for reading order, tables, selective OCR, and
+formula recognition. Its first PDF conversion downloads about 1 GB of model
+artifacts pinned by revision; later conversions run locally. A supported GPU is
+selected automatically; formula-heavy PDFs are substantially slower on CPU.
+Local inputs are limited to `.pdf`, `.html`, `.htm`, `.md`, and `.txt`; other
+formats are rejected rather than decoded as text.
+
+Web-page ingest uses Firecrawl and discovery uses Exa. Copy `.env.example` to
+`.env` and set `FIRECRAWL_API_KEY` / `EXA_API_KEY`. Repeating a key on multiple
+lines pools them, with automatic failover.
 
 ## What is enforced vs. what is judgment
 
