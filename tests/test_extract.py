@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import io
 import os
+import re
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +19,60 @@ sys.path.insert(0, str(SCRIPTS))
 
 import extract  # noqa: E402
 from workspace_paths import Workspace  # noqa: E402
+
+
+class PdfPackaging(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        cls.config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+    def test_runtime_profile_matches_quality_extra(self):
+        extras = self.config["project"]["optional-dependencies"]
+        profile = extract.PDF_PROFILES["docling-enriched"]
+        pattern = re.compile(
+            rf"^{re.escape(profile.distribution)}(?:\[[^]]+\])?"
+            rf"=={re.escape(profile.version)}$"
+        )
+        for extra in profile.install_extras:
+            self.assertTrue(any(pattern.match(item) for item in extras[extra]))
+
+    def test_quality_install_variants_share_one_parser_profile(self):
+        extras = self.config["project"]["optional-dependencies"]
+        self.assertEqual(extras["pdf-quality"], extras["pdf-quality-cpu"])
+
+    def test_reference_profiles_pin_benchmarked_backends(self):
+        extras = self.config["project"]["optional-dependencies"]
+        self.assertTrue(
+            {
+                "pymupdf==1.28.0",
+                "pymupdf-layout==1.28.0",
+                "pymupdf4llm==1.28.0",
+                "rapidocr-onnxruntime==1.4.4",
+            }.issubset(extras["pdf-balanced"])
+        )
+        self.assertEqual(extras["pdf-fast"], ["kreuzberg==4.10.0"])
+        self.assertEqual(
+            self.config["project"]["requires-python"], ">=3.11,<3.13"
+        )
+
+    def test_pdf_install_extras_are_pairwise_conflicting(self):
+        profiles = (
+            "pdf-quality",
+            "pdf-quality-cpu",
+            "pdf-balanced",
+            "pdf-fast",
+        )
+        required = {
+            frozenset((left, right))
+            for index, left in enumerate(profiles)
+            for right in profiles[index + 1 :]
+        }
+        declared = {
+            frozenset(item["extra"] for item in conflict)
+            for conflict in self.config["tool"]["uv"]["conflicts"]
+        }
+        self.assertEqual(declared, required)
 
 
 def minimal_pdf(text: str) -> bytes:
@@ -243,6 +300,33 @@ class SourceIdentity(unittest.TestCase):
     def test_source_page_path_depends_only_on_work_id(self):
         self.assertEqual(extract._source_page("1706.03762"), "wiki/sources/1706.03762.md")
 
+    def test_incomplete_arxiv_refresh_preserves_existing_capture(self):
+        surface = self.root / "extracted/1706.03762/text.md"
+        raw = self.root / "raw/1706.03762/ar5iv.html"
+        surface.parent.mkdir(parents=True)
+        raw.parent.mkdir(parents=True)
+        surface.write_text("# Complete\n", encoding="utf-8")
+        raw.write_bytes(b"complete body")
+        before_surface = surface.read_bytes()
+        before_raw = raw.read_bytes()
+        degraded = extract.Extraction(
+            "1706.03762",
+            "https://arxiv.org/abs/1706.03762",
+            "# Abstract only\n",
+            (("arxiv-metadata.xml", b"metadata"),),
+            complete=False,
+        )
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            with patch.object(extract, "extract_arxiv", return_value=degraded):
+                with self.assertRaisesRegex(SystemExit, "incomplete capture"):
+                    extract.main(["1706.03762", "--refresh"])
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(surface.read_bytes(), before_surface)
+        self.assertEqual(raw.read_bytes(), before_raw)
+
 
 class LocalContent(unittest.TestCase):
     def setUp(self) -> None:
@@ -266,6 +350,26 @@ class LocalContent(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "not valid UTF-8"):
             extract.extract_file(path, self.ws, None)
 
+    def test_pdf_requires_explicit_profile_before_read(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF")
+        with patch.object(
+            Path, "read_bytes", side_effect=AssertionError("must not read")
+        ):
+            with self.assertRaisesRegex(SystemExit, "requires --pdf-profile"):
+                extract.extract_file(path, self.ws, None)
+
+    def test_pdf_profile_is_rejected_for_non_pdf_before_read(self):
+        path = self.root / "paper.txt"
+        path.write_text("body", encoding="utf-8")
+        with patch.object(
+            Path, "read_bytes", side_effect=AssertionError("must not read")
+        ):
+            with self.assertRaisesRegex(SystemExit, "only for a local \\.pdf"):
+                extract.extract_file(
+                    path, self.ws, None, "docling-enriched"
+                )
+
     def test_pdf_uses_structured_converter_on_captured_bytes(self):
         path = self.root / "extracted-title.pdf"
         captured = b"%PDF captured once"
@@ -275,9 +379,15 @@ class LocalContent(unittest.TestCase):
             "| Method | Score |\n|---|---|\n| A | 98 |\n"
         )
         with patch.object(extract, "pdf_to_markdown", return_value=markdown) as convert:
-            result = extract.extract_file(path, self.ws, None)
-        convert.assert_called_once_with(captured, "extracted-title.pdf")
+            result = extract.extract_file(
+                path, self.ws, None, "docling-enriched"
+            )
+        convert.assert_called_once_with(
+            captured, "extracted-title.pdf", "docling-enriched"
+        )
         self.assertTrue(result.text.startswith("# Extracted title\n\n- Source:"))
+        self.assertIn("- PDF backend: docling==2.111.0", result.text)
+        self.assertIn("- PDF profile: docling-enriched@1", result.text)
         self.assertEqual(result.text.count("Extracted title"), 1)
         self.assertIn("| Method | Score |", result.text)
         self.assertEqual(result.raw_files, (("extracted-title.pdf", captured),))
@@ -287,7 +397,9 @@ class LocalContent(unittest.TestCase):
         path.write_bytes(b"%PDF captured once")
         markdown = "## Introduction\n\nBody.\n\n## Abstract\n\nSummary.\n"
         with patch.object(extract, "pdf_to_markdown", return_value=markdown):
-            result = extract.extract_file(path, self.ws, None)
+            result = extract.extract_file(
+                path, self.ws, None, "docling-enriched"
+            )
         self.assertTrue(result.text.startswith("# paper\n\n- Source:"))
         self.assertIn("## Introduction\n\nBody.", result.text)
         self.assertIn("## Abstract\n\nSummary.", result.text)
@@ -320,6 +432,49 @@ class LocalContent(unittest.TestCase):
         self.assertIn("**evidence**", result.text)
         self.assertRegex(result.text, r"\|\s+A\s+\|\s+B\s+\|")
         self.assertNotIn("menu", result.text)
+        self.assertNotIn("PDF backend", result.text)
+        self.assertNotIn("PDF profile", result.text)
+
+    def test_pdf_dispatches_the_workspace_profile(self):
+        with patch.object(
+            extract,
+            "_docling_pdf_to_markdown",
+            return_value="# Docling\n",
+        ) as selected:
+            self.assertEqual(
+                extract.pdf_to_markdown(
+                    b"%PDF", "paper.pdf", "docling-enriched"
+                ),
+                "# Docling\n",
+            )
+        selected.assert_called_once_with(b"%PDF", "paper.pdf")
+
+    def test_unknown_profile_is_rejected_without_conversion(self):
+        with patch.object(
+            extract,
+            "_docling_pdf_to_markdown",
+            side_effect=AssertionError("unknown profile must not convert"),
+        ):
+            with self.assertRaisesRegex(ValueError, "unknown PDF profile"):
+                extract.pdf_to_markdown(b"%PDF", "paper.pdf", "unknown")
+
+    def test_backend_version_must_match_profile(self):
+        profile = extract.PDF_PROFILES["docling-enriched"]
+        with patch.object(extract, "distribution_version", return_value="2.110.0"):
+            with self.assertRaisesRegex(SystemExit, "requires docling==2.111.0"):
+                extract._require_backend_version(profile)
+
+    def test_missing_backend_names_both_install_variants(self):
+        profile = extract.PRODUCTION_PDF_PROFILE
+        with patch.object(
+            extract,
+            "distribution_version",
+            side_effect=extract.PackageNotFoundError,
+        ):
+            with self.assertRaises(SystemExit) as raised:
+                extract._require_backend_version(profile)
+        self.assertIn("pdf-quality`", str(raised.exception))
+        self.assertIn("pdf-quality-cpu`", str(raised.exception))
 
     def test_pdf_initialization_failure_is_reported(self):
         with patch.object(
@@ -328,7 +483,9 @@ class LocalContent(unittest.TestCase):
             side_effect=RuntimeError("initialization failed"),
         ):
             with self.assertRaisesRegex(SystemExit, "could not convert PDF to Markdown"):
-                extract.pdf_to_markdown(b"%PDF", "paper.pdf")
+                extract.pdf_to_markdown(
+                    b"%PDF", "paper.pdf", "docling-enriched"
+                )
 
     def test_pdf_pipeline_options_are_pinned_and_enabled(self):
         options = extract._pdf_pipeline_options()
@@ -354,21 +511,158 @@ class LocalContent(unittest.TestCase):
         cwd = os.getcwd()
         os.chdir(self.root)
         try:
+            args = [
+                str(path),
+                "--work-id",
+                "paper",
+                "--pdf-profile",
+                "docling-enriched",
+            ]
             with patch.object(extract, "pdf_to_markdown", return_value="# Paper\n\nBody.\n"):
                 with contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(
-                        extract.main([str(path), "--work-id", "paper"]),
-                        0,
-                    )
+                    self.assertEqual(extract.main(args), 0)
             with patch.object(
                 extract,
                 "pdf_to_markdown",
                 side_effect=AssertionError("identical PDF must not be reconverted"),
             ):
                 with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(extract.main(args), 0)
+        finally:
+            os.chdir(cwd)
+
+    def test_identical_pdf_profile_revision_change_requires_refresh(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF stable capture")
+        revised = replace(extract.PRODUCTION_PDF_PROFILE, revision=2)
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            first = [
+                str(path),
+                "--work-id",
+                "paper",
+                "--pdf-profile",
+                "docling-enriched",
+            ]
+            second = [
+                str(path),
+                "--work-id",
+                "paper",
+                "--pdf-profile",
+                "docling-enriched",
+            ]
+            with patch.object(extract, "pdf_to_markdown", return_value="first body"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(extract.main(first), 0)
+            surface = self.root / "extracted/paper/text.md"
+            raw = self.root / "raw/paper/paper.pdf"
+            before_surface = surface.read_bytes()
+            before_raw = raw.read_bytes()
+            with (
+                patch.dict(extract.PDF_PROFILES, {revised.name: revised}),
+                patch.object(
+                    extract,
+                    "pdf_to_markdown",
+                    side_effect=AssertionError(
+                        "mismatch must fail before conversion"
+                    ),
+                ),
+            ):
+                with self.assertRaisesRegex(SystemExit, "Re-run with --refresh"):
+                    extract.main(second)
+            self.assertEqual(surface.read_bytes(), before_surface)
+            self.assertEqual(raw.read_bytes(), before_raw)
+        finally:
+            os.chdir(cwd)
+
+    def test_refresh_reextracts_identical_pdf_with_new_profile_revision(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF stable capture")
+        revised = replace(extract.PRODUCTION_PDF_PROFILE, revision=2)
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            common = [str(path), "--work-id", "paper", "--pdf-profile"]
+            with patch.object(extract, "pdf_to_markdown", return_value="first body"):
+                with contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(
-                        extract.main([str(path), "--work-id", "paper"]),
-                        0,
+                        extract.main([*common, "docling-enriched"]), 0
+                    )
+            with (
+                patch.dict(extract.PDF_PROFILES, {revised.name: revised}),
+                patch.object(
+                    extract, "pdf_to_markdown", return_value="second body"
+                ) as convert,
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(
+                        extract.main([*common, "docling-enriched", "--refresh"]), 0
+                    )
+            convert.assert_called_once_with(
+                b"%PDF stable capture", "paper.pdf", "docling-enriched"
+            )
+            surface = (self.root / "extracted/paper/text.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("- PDF backend: docling==2.111.0", surface)
+            self.assertIn("- PDF profile: docling-enriched@2", surface)
+            self.assertIn("second body", surface)
+            self.assertNotIn("first body", surface)
+        finally:
+            os.chdir(cwd)
+
+    def test_legacy_pdf_surface_requires_refresh(self):
+        path = self.root / "paper.pdf"
+        path.write_bytes(b"%PDF stable capture")
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            args = [
+                str(path),
+                "--work-id",
+                "paper",
+                "--pdf-profile",
+                "docling-enriched",
+            ]
+            with patch.object(extract, "pdf_to_markdown", return_value="body"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(extract.main(args), 0)
+            surface = self.root / "extracted/paper/text.md"
+            legacy = "\n".join(
+                line
+                for line in surface.read_text(encoding="utf-8").splitlines()
+                if not line.startswith(("- PDF backend:", "- PDF profile:"))
+            ) + "\n"
+            surface.write_text(legacy, encoding="utf-8")
+            before = surface.read_bytes()
+            with patch.object(
+                extract,
+                "pdf_to_markdown",
+                side_effect=AssertionError("legacy surface must fail before conversion"),
+            ):
+                with self.assertRaisesRegex(SystemExit, "unrecorded profile"):
+                    extract.main(args)
+            self.assertEqual(surface.read_bytes(), before)
+        finally:
+            os.chdir(cwd)
+
+    def test_profile_is_rejected_for_url_before_network(self):
+        cwd = os.getcwd()
+        os.chdir(self.root)
+        try:
+            with patch.object(
+                extract,
+                "extract_url",
+                side_effect=AssertionError("must not access network"),
+            ):
+                with self.assertRaisesRegex(SystemExit, "only for a local \\.pdf"):
+                    extract.main(
+                        [
+                            "https://example.test/paper.pdf",
+                            "--pdf-profile",
+                            "docling-enriched",
+                        ]
                     )
         finally:
             os.chdir(cwd)
@@ -380,7 +674,9 @@ class LocalContent(unittest.TestCase):
     def test_docling_pdf_integration(self):
         path = self.root / "integration.pdf"
         path.write_bytes(minimal_pdf("Patchouli PDF Integration"))
-        result = extract.extract_file(path, self.ws, None)
+        result = extract.extract_file(
+            path, self.ws, None, "docling-enriched"
+        )
         self.assertIn("Patchouli PDF Integration", result.text)
 
 

@@ -3,7 +3,7 @@
 Dispatches by input type and writes the reading surface the agent compiles into a
 source page:
 
-    python3 scripts/extract.py <input> [--work-id ID] [--refresh]
+    python3 scripts/extract.py <input> [--pdf-profile PROFILE] [--work-id ID] [--refresh]
 
 Inputs:
   - arxiv id or arxiv URL: arxiv API metadata + ar5iv body, no key
@@ -27,6 +27,7 @@ from dataclasses import dataclass
 import filecmp
 import hashlib
 import io
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 import json
 import os
 from pathlib import Path
@@ -54,11 +55,39 @@ DOCLING_FORMULA_REVISION = "ecedbe111d15c2dc60bfd4a823cbe80127b58af4"
 
 
 @dataclass(frozen=True)
+class PdfProfile:
+    name: str
+    revision: int
+    distribution: str
+    version: str
+    install_extras: tuple[str, ...]
+
+    @property
+    def backend_provenance(self) -> str:
+        return f"{self.distribution}=={self.version}"
+
+    @property
+    def profile_provenance(self) -> str:
+        return f"{self.name}@{self.revision}"
+
+
+PRODUCTION_PDF_PROFILE = PdfProfile(
+    name="docling-enriched",
+    revision=1,
+    distribution="docling",
+    version="2.111.0",
+    install_extras=("pdf-quality", "pdf-quality-cpu"),
+)
+PDF_PROFILES = {PRODUCTION_PDF_PROFILE.name: PRODUCTION_PDF_PROFILE}
+
+
+@dataclass(frozen=True)
 class Extraction:
     work_id: str
     source: str
     text: str
     raw_files: tuple[tuple[str, bytes], ...]
+    complete: bool = True
 
 
 def _clean_markdown(markdown: str) -> str:
@@ -73,8 +102,7 @@ def html_to_markdown(html: str) -> str:
         from markdownify import markdownify
     except ImportError as exc:
         raise SystemExit(
-            "HTML extraction needs Beautiful Soup and markdownify: "
-            "`uv pip install -r requirements.txt`"
+            "HTML extraction needs Beautiful Soup and markdownify: `uv sync`"
         ) from exc
 
     soup = BeautifulSoup(html, "html.parser")
@@ -85,6 +113,27 @@ def html_to_markdown(html: str) -> str:
     if not markdown:
         raise SystemExit("HTML conversion produced no readable content")
     return markdown
+
+
+def _profile_install_options(profile: PdfProfile) -> str:
+    return " or ".join(
+        f"`uv sync --extra {extra}`" for extra in profile.install_extras
+    )
+
+
+def _require_backend_version(profile: PdfProfile) -> None:
+    try:
+        installed = distribution_version(profile.distribution)
+    except PackageNotFoundError as exc:
+        raise SystemExit(
+            f"PDF profile {profile.name!r} needs {profile.distribution}=={profile.version}: "
+            f"{_profile_install_options(profile)}"
+        ) from exc
+    if installed != profile.version:
+        raise SystemExit(
+            f"PDF profile {profile.name!r} requires {profile.distribution}=={profile.version}, "
+            f"but {installed} is installed: {_profile_install_options(profile)}"
+        )
 
 
 def _pdf_pipeline_options():
@@ -133,31 +182,43 @@ def _pdf_pipeline_options():
     )
 
 
-def pdf_to_markdown(data: bytes, name: str) -> str:
-    """Convert one captured PDF with the benchmarked local Docling pipeline."""
-
+def _docling_pdf_to_markdown(data: bytes, name: str) -> str:
+    profile = PRODUCTION_PDF_PROFILE
+    _require_backend_version(profile)
     try:
         from docling.datamodel.base_models import DocumentStream, InputFormat
         from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.exceptions import ConversionError
+
+        options = _pdf_pipeline_options()
     except ImportError as exc:
         raise SystemExit(
-            "ingesting a local .pdf needs Docling: `uv pip install -r requirements.txt`"
+            f"PDF profile {profile.name!r} is incomplete: "
+            f"{_profile_install_options(profile)}"
         ) from exc
+    except (OSError, RuntimeError) as exc:
+        raise SystemExit(f"could not convert PDF to Markdown: {exc}") from exc
 
     try:
-        options = _pdf_pipeline_options()
         converter = DocumentConverter(
             allowed_formats=[InputFormat.PDF],
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
         )
         stream = DocumentStream(name=name, stream=io.BytesIO(data))
         result = converter.convert(stream, raises_on_error=True)
-        markdown = _clean_markdown(
+        return _clean_markdown(
             result.document.export_to_markdown(compact_tables=False)
         )
     except (ConversionError, OSError, RuntimeError) as exc:
         raise SystemExit(f"could not convert PDF to Markdown: {exc}") from exc
+
+
+def pdf_to_markdown(data: bytes, name: str, profile_name: str) -> str:
+    """Convert one captured PDF with the workspace's production profile."""
+
+    if profile_name not in PDF_PROFILES:
+        raise ValueError(f"unknown PDF profile: {profile_name!r}")
+    markdown = _docling_pdf_to_markdown(data, name)
     if not any(character.isalnum() for character in markdown):
         raise SystemExit(
             "PDF conversion produced no readable text; the document may be blank, "
@@ -229,7 +290,9 @@ def _normalize_url(url: str) -> str:
         raise SystemExit(f"invalid web URL: {url!r}")
     if parts.username is not None or parts.password is not None:
         raise SystemExit("credential-bearing URLs are not accepted; use a public source URL")
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path or "/", parts.query, ""))
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path or "/", parts.query, "")
+    )
 
 
 def _locator_work_id(label: str, locator: str) -> str:
@@ -261,9 +324,12 @@ def _local_identity(
 
 
 def _reusable_local_extraction(
-    path: Path, workspace: Workspace, work_id: str | None
+    path: Path,
+    workspace: Workspace,
+    work_id: str | None,
+    pdf_profile: str | None = None,
 ) -> Extraction | None:
-    path, _, source, identity = _local_identity(path, workspace, work_id)
+    path, ext, source, identity = _local_identity(path, workspace, work_id)
     try:
         raw = workspace.confined(workspace.raw, identity, path.name)
         surface = workspace.confined(workspace.extracted, identity, "text.md")
@@ -279,6 +345,30 @@ def _reusable_local_extraction(
     source_match = re.search(r"^- Source:\s*(.+?)\s*$", text, flags=re.MULTILINE)
     if source_match is None or source_match.group(1) != source:
         return None
+    if ext == ".pdf":
+        if pdf_profile is None:
+            raise SystemExit("a local .pdf requires --pdf-profile")
+        profile = PDF_PROFILES[pdf_profile]
+        backend_match = re.search(
+            r"^- PDF backend:\s*(.+?)\s*$", text, flags=re.MULTILINE
+        )
+        profile_match = re.search(
+            r"^- PDF profile:\s*(.+?)\s*$", text, flags=re.MULTILINE
+        )
+        existing = (
+            profile_match.group(1) if profile_match is not None else "an unrecorded profile"
+        )
+        if (
+            backend_match is None
+            or backend_match.group(1) != profile.backend_provenance
+            or profile_match is None
+            or profile_match.group(1) != profile.profile_provenance
+        ):
+            raise SystemExit(
+                f"{workspace.relpath(surface)} was produced with {existing}; requested "
+                f"{profile.profile_provenance}. Re-run with --refresh to replace the "
+                "canonical reading surface. No artifact was changed."
+            )
     return Extraction(identity, source, text, ())
 
 
@@ -301,12 +391,14 @@ def extract_arxiv(ref: ArxivRef) -> Extraction:
     abstract = " ".join(entry.findtext("a:summary", default="", namespaces=ATOM).split())
 
     raw_files: list[tuple[str, bytes]] = [("arxiv-metadata.xml", meta_xml)]
+    complete = True
     try:
         html_bytes = _get(AR5IV.format(id=ref.fetch_id))
         raw_files.append(("ar5iv.html", html_bytes))
         body = html_to_markdown(html_bytes.decode("utf-8", "replace"))
         body = _drop_title_heading(body, title, authoritative=True)
     except (urllib.error.URLError, OSError) as exc:
+        complete = False
         body = f"[ar5iv body unavailable: {exc}; reading surface holds the abstract only]"
 
     source = f"https://arxiv.org/abs/{ref.fetch_id}"
@@ -319,7 +411,7 @@ def extract_arxiv(ref: ArxivRef) -> Extraction:
         f"- Body source: {AR5IV.format(id=ref.fetch_id)}\n\n"
         f"## Abstract\n\n{abstract}\n\n## Body\n\n{body}\n"
     )
-    return Extraction(ref.work_id, source, text, tuple(raw_files))
+    return Extraction(ref.work_id, source, text, tuple(raw_files), complete=complete)
 
 
 def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extraction:
@@ -340,7 +432,8 @@ def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extracti
             raise SystemExit(f"firecrawl request failed ({exc.code}): {detail}")
         except urllib.error.URLError as exc:
             raise SystemExit(
-                f"could not reach Firecrawl ({exc.reason}); transient network or endpoint down, retry"
+                f"could not reach Firecrawl ({exc.reason}); transient network or "
+                "endpoint down, retry"
             )
 
     try:
@@ -353,7 +446,8 @@ def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extracti
     data = result.get("data") or {}
     markdown = data.get("markdown") or ""
     if not markdown:
-        raise SystemExit(f"firecrawl returned no markdown for {source}: {json.dumps(result)[:300]}")
+        detail = json.dumps(result)[:300]
+        raise SystemExit(f"firecrawl returned no markdown for {source}: {detail}")
     title = (data.get("metadata") or {}).get("title") or source
     markdown = _drop_title_heading(markdown, title, authoritative=True)
     if work_id is None:
@@ -364,11 +458,24 @@ def extract_url(url: str, workspace: Workspace, work_id: str | None) -> Extracti
     return Extraction(work_id, source, text, (("firecrawl.json", raw),))
 
 
-def extract_file(path: Path, workspace: Workspace, work_id: str | None) -> Extraction:
+def extract_file(
+    path: Path,
+    workspace: Workspace,
+    work_id: str | None,
+    pdf_profile: str | None = None,
+) -> Extraction:
     path, ext, source, work_id = _local_identity(path, workspace, work_id)
+    if ext == ".pdf":
+        if pdf_profile is None:
+            raise SystemExit("a local .pdf requires --pdf-profile")
+        if pdf_profile not in PDF_PROFILES:
+            raise SystemExit(f"unknown PDF profile: {pdf_profile!r}")
+    elif pdf_profile is not None:
+        raise SystemExit("--pdf-profile is accepted only for a local .pdf")
+
     raw_bytes = path.read_bytes()
     if ext == ".pdf":
-        body = pdf_to_markdown(raw_bytes, path.name)
+        body = pdf_to_markdown(raw_bytes, path.name, pdf_profile)
     else:
         try:
             decoded = raw_bytes.decode("utf-8")
@@ -384,7 +491,17 @@ def extract_file(path: Path, workspace: Workspace, work_id: str | None) -> Extra
         and slugify(_heading_text(first_heading.group(2))) == slugify(path.stem)
     )
     body = _drop_title_heading(body, title, authoritative=inferred_from_name)
-    text = f"# {title}\n\n- Source: {source}\n\n{body.rstrip()}\n"
+    metadata = [f"- Source: {source}"]
+    if pdf_profile is not None:
+        profile = PDF_PROFILES[pdf_profile]
+        metadata.extend(
+            (
+                f"- PDF backend: {profile.backend_provenance}",
+                f"- PDF profile: {profile.profile_provenance}",
+            )
+        )
+    provenance = "\n".join(metadata)
+    text = f"# {title}\n\n{provenance}\n\n{body.rstrip()}\n"
     return Extraction(work_id, source, text, ((path.name, raw_bytes),))
 
 
@@ -416,13 +533,27 @@ def _publish(extraction: Extraction, workspace: Workspace, surface: Path) -> Non
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Extract a source into extracted/<work_id>/text.md")
+    parser = argparse.ArgumentParser(
+        description="Extract a source into extracted/<work_id>/text.md"
+    )
     parser.add_argument("input", help="arxiv id/URL, http(s) URL, or local file path")
-    parser.add_argument("--work-id", default=None, help="stable path-safe identity override for a web or local source")
+    parser.add_argument(
+        "--pdf-profile",
+        choices=sorted(PDF_PROFILES),
+        help="required explicit parser profile for a local .pdf",
+    )
+    parser.add_argument(
+        "--work-id",
+        default=None,
+        help="stable path-safe identity override for a web or local source",
+    )
     parser.add_argument(
         "--refresh",
         action="store_true",
-        help="replace a changed current capture/surface; update and commit its source page in the same ingest",
+        help=(
+            "replace a changed current capture/surface; update and commit its "
+            "source page in the same ingest"
+        ),
     )
     args = parser.parse_args(argv)
     workspace = Workspace.from_path(None)
@@ -432,21 +563,41 @@ def main(argv: list[str] | None = None) -> int:
     arxiv_ref = parse_arxiv_ref(value)
     reused = False
     if arxiv_ref:
+        if args.pdf_profile:
+            raise SystemExit("--pdf-profile is accepted only for a local .pdf")
         if explicit_work_id and explicit_work_id != arxiv_ref.work_id:
             raise SystemExit("arxiv work_id is its stable base id; --work-id cannot override it")
         extraction = extract_arxiv(arxiv_ref)
     elif value.startswith(("http://", "https://")):
+        if args.pdf_profile:
+            raise SystemExit("--pdf-profile is accepted only for a local .pdf")
         extraction = extract_url(value, workspace, explicit_work_id)
     elif Path(value).is_file():
         local_path = Path(value)
+        _, ext, _, _ = _local_identity(local_path, workspace, explicit_work_id)
+        if ext == ".pdf" and args.pdf_profile is None:
+            choices = ", ".join(sorted(PDF_PROFILES))
+            raise SystemExit(
+                f"a local .pdf requires --pdf-profile; choose one of: {choices}"
+            )
+        if ext != ".pdf" and args.pdf_profile is not None:
+            raise SystemExit("--pdf-profile is accepted only for a local .pdf")
         extraction = None
         if not args.refresh:
             extraction = _reusable_local_extraction(
-                local_path, workspace, explicit_work_id
+                local_path,
+                workspace,
+                explicit_work_id,
+                args.pdf_profile,
             )
             reused = extraction is not None
         if extraction is None:
-            extraction = extract_file(local_path, workspace, explicit_work_id)
+            extraction = extract_file(
+                local_path,
+                workspace,
+                explicit_work_id,
+                args.pdf_profile,
+            )
     else:
         raise SystemExit(
             f"unrecognized input: {value!r} (not an arxiv id, an http(s) URL, or an existing file)"
@@ -457,6 +608,11 @@ def main(argv: list[str] | None = None) -> int:
         surface = workspace.confined(workspace.extracted, work_id, "text.md")
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    if surface.exists() and args.refresh and not extraction.complete:
+        raise SystemExit(
+            f"could not refresh {workspace.relpath(surface)} with an incomplete capture; "
+            "the existing raw files and reading surface were left unchanged"
+        )
     version_id = content_version_id(extraction.text)
     if surface.exists() and not args.refresh:
         existing = content_version_id(surface.read_bytes())

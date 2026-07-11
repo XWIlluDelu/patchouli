@@ -34,29 +34,34 @@ what gets foregrounded.
 
 ## Setup
 
-Create the environment and install the document pipeline:
+This workspace uses the high-quality `docling-enriched` PDF profile:
 
 ```sh
-uv venv
-uv pip install -r requirements.txt
+uv sync --extra pdf-quality
+python3 scripts/extract.py paper.pdf --pdf-profile docling-enriched
 ```
 
-On Linux, the GPU-capable PyTorch stack makes the environment about 5 GB. A
-CPU-only machine can avoid the CUDA packages by installing the CPU wheels first:
+Use `uv sync --extra pdf-quality-cpu` for the same parser with CPU-only PyTorch
+wheels. `uv sync` without an extra installs only the HTML/text pipeline. Then
+run `direnv allow`, or source `.venv/bin/activate` directly.
 
-```sh
-uv pip install 'torch==2.13.0' 'torchvision==0.28.0' \
-  --index-url https://download.pytorch.org/whl/cpu
-uv pip install -r requirements.txt
-```
+`pyproject.toml` and `uv.lock` also retain `pdf-balanced` and `pdf-fast`
+comparison environments. The balanced profile includes a mandatory
+noncommercial-or-commercial dependency; install it only after resolving the
+license for the intended use. Exact versions, configurations, measurements, and
+license boundaries are in [`docs/pdf-profiles.md`](docs/pdf-profiles.md).
 
-Then run `direnv allow`, or `source .venv/bin/activate` if you do not use
-direnv. PDF ingest uses Docling for reading order, tables, selective OCR, and
-formula recognition. Its first PDF conversion downloads about 1 GB of model
-artifacts pinned by revision; later conversions run locally. A supported GPU is
-selected automatically; formula-heavy PDFs are substantially slower on CPU.
-Local inputs are limited to `.pdf`, `.html`, `.htm`, `.md`, and `.txt`; other
-formats are rejected rather than decoded as text.
+The extras are mutually incompatible. An exact `uv sync --extra ...` switches
+the environment rather than mixing parser stacks. Only `docling-enriched` is
+wired into `scripts/extract.py`; the extractor never probes installed packages
+or falls back to a different parser.
+
+Virtual environments under `.venv/` or `.venv-*/` are ignored; dependency and
+model caches use defaults outside the repository. Git contains only the
+dependency declarations and lockfile. Docling downloads its model artifacts on
+first use and keeps them outside the repository. Local inputs are limited to
+`.pdf`, `.html`, `.htm`, `.md`, and `.txt`; other formats are rejected rather
+than decoded as text.
 
 Web-page ingest uses Firecrawl and discovery uses Exa. Copy `.env.example` to
 `.env` and set `FIRECRAWL_API_KEY` / `EXA_API_KEY`. Repeating a key on multiple
@@ -76,6 +81,7 @@ is tested: `python3 -m unittest discover -s tests`.
 ```
 AGENTS.md   entry point: routing, the contracts, the binding floor (CLAUDE.md links here)
 README.md   this file
+pyproject.toml, uv.lock   common dependencies and mutually exclusive PDF profiles
 docs/       the design argument (llm-wiki-philosophy.md)
 prompts/    one task file per operation
 system/     page_templates.md — structural source of truth for every page type

@@ -78,11 +78,14 @@ is only the line each one must not cross.
 
 - `raw/` is the gitignored current source capture and may update after a
   successful extraction. `extracted/` is the tracked reading surface and quote
-  authority. Never edit either by hand. When its content changes, `extract.py`
-  may replace the surface only with explicit `--refresh`; then re-read and update
-  the source page in the same commit. Git retains the prior tracked surface. If an
-  extraction is damaged, record that in the source page's `## Extraction
-  caveats`.
+  authority. Never edit either by hand. This workspace uses the explicit
+  `docling-enriched` profile for local PDFs. The balanced and fast dependency
+  profiles documented under `docs/` are reproducibility records, not extraction
+  fallbacks. The surface records the production profile. When its content or PDF
+  profile changes, `extract.py` may replace the surface only with
+  explicit `--refresh`; then re-read and update the source page in the same
+  commit. Git retains the prior tracked surface. If an extraction is damaged,
+  record that in the source page's `## Extraction caveats`.
 - `wiki/` is derived, maintained knowledge. Every claim here traces back to a
   source.
 - `notes/` is human-written, only ever. The one operation that edits it is

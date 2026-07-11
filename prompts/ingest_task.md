@@ -3,14 +3,19 @@
 Compile one source into a single page under `wiki/sources/`.
 
 1. Run `python3 scripts/extract.py <input>` when the source is not yet extracted
-   or when checking a requested update. It writes
-   `extracted/<work_id>/text.md` and prints the exact `source_page`, `work_id`,
-   `version_id`, `reading_surface`, and `source` frontmatter. Web/local defaults
-   are collision-resistant functions of the source locator; `--work-id` is the
-   stable identity override. Write only to the printed source-page path. If a
-   changed surface is the same work and the user requested an update, re-run
-   with `--refresh`, then update the source page and commit both tracked files
-   together. Never use refresh to resolve a collision between distinct works.
+   or when checking a requested update. This workspace uses
+   `--pdf-profile docling-enriched` for every local PDF. The balanced and fast
+   profiles in `docs/pdf-profiles.md` record benchmark environments only; never
+   select them from installed packages or use them as fallbacks. The script
+   writes `extracted/<work_id>/text.md` and prints the exact
+   `source_page`, `work_id`, `version_id`, `reading_surface`, and `source`
+   frontmatter. Web/local defaults are collision-resistant functions of the
+   source locator; `--work-id` is the stable identity override. Write only to
+   the printed source-page path. If a changed surface is the same work and the
+   user requested an update, re-run with `--refresh`, then update the source
+   page and commit both tracked files together. Switching a PDF profile also
+   requires `--refresh`. Never use refresh to resolve a collision between
+   distinct works.
 2. Read the reading surface in full. Read related wiki pages (search
    `wiki/sources/`, `wiki/concepts/`, `wiki/syntheses/` for the topic) so you
    can place the source and surface any tension.
