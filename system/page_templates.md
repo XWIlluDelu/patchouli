@@ -4,8 +4,8 @@ One universal structure per page type. This file is the maintainer's single
 source of truth for page structure. A taste may change emphasis, never
 structure.
 
-The structures below are the target. Each one ends in a GOOD/BAD pair where the
-shape is easy to get wrong; copy the GOOD shape, avoid the BAD one. Show the
+The structures below are the target. Where a shape is easy to get wrong, a
+GOOD/BAD pair follows; copy the GOOD shape, avoid the BAD one. Show the
 quality, do not describe it.
 
 ## Source page

@@ -13,8 +13,8 @@ reconciled rather than narrated.
 The foundational insight is Karpathy's [1]: an LLM wiki is not a query-time
 retrieval system. It is a persistent, compounding artifact — a structured,
 interlinked collection of markdown files that sits between the human and the raw
-sources. Knowledge is compiled once at ingest and kept current, not re-derived
-on every query. The wiki gets richer with every source added and every question
+sources. Knowledge is compiled once at ingest and kept current by refresh and
+maintenance, not re-derived on every query. The wiki gets richer with every source added and every question
 asked.
 
 This reframe changes the engineering problem. In traditional software the code
@@ -46,7 +46,8 @@ chatbot with file access; it is a long-running research librarian.
 The predecessors of this product (the A and P-series arms) were *programs that
 call an LLM*: a harness assembled a context, called the model, and
 post-processed the result. Patchouli is the inversion — *a methodology plus a
-few deterministic tools that direct an agent*. It makes no API calls of its own.
+few deterministic tools that direct an agent*. It makes no model API calls of
+its own.
 The LLM is the runtime: the coding agent (pi, codex, claude code) the user
 starts inside the folder. `AGENTS.md` is the operating contract that agent
 reads; the scripts are the deterministic operations it calls.

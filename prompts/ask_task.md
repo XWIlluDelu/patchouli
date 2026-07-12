@@ -4,8 +4,10 @@ Answer a research question from the compiled wiki, and file the answer at
 `wiki/answers/<slug>.md`.
 
 Search the compiled wiki for support — `wiki/sources/`, `wiki/syntheses/`,
-`wiki/concepts/`, `wiki/entities/`, and prior `wiki/answers/`. Hubs may guide
-navigation but carry no evidence. Do not read `raw/`/`extracted/`: ask
+`wiki/concepts/`, `wiki/entities/`, and prior `wiki/answers/`. Derived pages
+surface relations and prior judgment; `## Evidence` grounds in source pages,
+and a prior answer is never new evidence. Hubs may guide navigation but carry
+no evidence. Do not read `raw/`/`extracted/`: ask
 answers from the compiled wiki, the asset, not by re-deriving from sources — if
 the compiled layer cannot support the answer, that gap is itself the finding.
 Author or revise no knowledge page except the answer; the mandatory index script
