@@ -168,6 +168,8 @@ class BindingFloor(unittest.TestCase):
             ("The result is x + y.", "The result is x - y."),
             ("The result is x^2.", "The result is x^3."),
             ("The result is x_1.", "The result is x_2."),
+            ("The result is x′.", "The result is x."),
+            ("The interval is 5–7.", "The interval is 5-7."),
         )
         for surface_claim, quote in cases:
             with self.subTest(quote=quote):
