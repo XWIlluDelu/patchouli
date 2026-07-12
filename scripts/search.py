@@ -4,7 +4,8 @@
 
 Exa is a neural search engine: it takes a natural-language research direction and
 returns relevant web pages (papers, blogs, docs). This does NOT ingest and does NOT
-touch the wiki — it writes a candidate list to ``searches/<slug>.md`` for the
+touch the wiki — it writes a candidate list to
+``searches/<slug>-<query-digest>.md`` for the
 user to review, then pick which entries to ``ingest`` by URL or arxiv id.
 
 Search is the same shape of deterministic fetch-and-format as extract.py, so it is a
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import urllib.error
 import urllib.request
@@ -72,7 +74,7 @@ def _arxiv_id_from(url: str) -> str | None:
 
 
 def search(query: str, *, n: int, workspace: Workspace) -> dict:
-    """Run an Exa search and write a candidate list to searches/<slug>.md.
+    """Run an Exa search and write one query-identified candidate list.
 
     Returns a summary dict (query, path, count, candidates)."""
 
@@ -90,8 +92,9 @@ def search(query: str, *, n: int, workspace: Workspace) -> dict:
             "published_date": item.get("publishedDate"),
         })
 
-    slug = slugify(query, fallback="search")
-    out_path = workspace.searches / f"{slug}.md"
+    slug = slugify(query, fallback="search", max_length=80)
+    digest = hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
+    out_path = workspace.searches / f"{slug}-{digest}.md"
     lines = [
         f"# Search: {query}",
         "",
@@ -120,7 +123,9 @@ def search(query: str, *, n: int, workspace: Workspace) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Discover candidate sources via Exa; writes searches/<slug>.md.")
+    ap = argparse.ArgumentParser(
+        description="Discover candidate sources via Exa; writes one query-identified search record."
+    )
     ap.add_argument("query", help="a natural-language research direction")
     ap.add_argument("--n", type=int, default=8, help="number of candidates (default 8)")
     args = ap.parse_args()

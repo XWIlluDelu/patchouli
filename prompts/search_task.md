@@ -6,8 +6,8 @@ under `wiki/` is touched.
 
 1. Run `python3 scripts/search.py "<the user's direction>"` (default 8
    candidates; pass `--n` if the user asked for more or fewer). It calls Exa and
-   writes `searches/<slug>.md` — a Markdown list of candidates with title, link,
-   arxiv id (when one is in the URL), a short snippet, and the exact `ingest`
+   writes `searches/<slug>-<query-digest>.md` — a Markdown list of candidates
+   with title, link, arxiv id (when one is in the URL), a short snippet, and the exact `ingest`
    line the user can give back for each one.
 2. Tell the user the path of the candidate file and a one-line summary of what
    was found (count, and the top two or three titles); note when the list is
