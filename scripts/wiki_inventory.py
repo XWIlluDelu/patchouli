@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import posixpath
 import re
+from urllib.parse import unquote, urlsplit
 
 from workspace_paths import Workspace
-
 
 PAGE_DIRS = {
     "sources": "source",
@@ -22,7 +23,16 @@ DURABLE_TYPES = {"concept", "entity", "synthesis"}
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 WORK_MARKER_RE = re.compile(r"\((?:synthesis across\s+)?Works?:\s*([^)]+)\)")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
-MD_LINK_RE = re.compile(r"\]\(([^)\s]+\.md)\)")
+MD_LINK_RE = re.compile(
+    r"\]\(\s*(?:<([^>\n]+)>|([^\s)]+))"
+    r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?\s*\)"
+)
+
+
+@dataclass(frozen=True)
+class LinkRef:
+    kind: str
+    target: str
 
 
 @dataclass(frozen=True)
@@ -35,7 +45,7 @@ class PageRecord:
     work_ids: tuple[str, ...]
     frontmatter: dict[str, str]
     body: str
-    links: tuple[str, ...]
+    links: tuple[LinkRef, ...]
 
 
 @dataclass(frozen=True)
@@ -86,14 +96,16 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
         if not value:
             block_key = key.strip()
     close_block()
-    return metadata, text[match.end():]
+    return metadata, text[match.end() :]
 
 
 def parse_inline_list(value: str) -> tuple[str, ...]:
     value = value.strip()
     if value.startswith("[") and value.endswith("]"):
         inner = value[1:-1]
-        return tuple(item.strip().strip("\"'`") for item in inner.split(",") if item.strip())
+        return tuple(
+            item.strip().strip("\"'`") for item in inner.split(",") if item.strip()
+        )
     return (value.strip().strip("\"'`"),) if value else ()
 
 
@@ -107,59 +119,110 @@ def work_ids_from_text(body: str) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _is_latex_double_bracket(body: str, match: re.Match) -> bool:
-    """True when a `[[...]]` match is a LaTeX formal power-series / matrix ring
-    notation (e.g. `E[[t]]`, `R[[x]]_s`), not an Obsidian wikilink.
+def _is_latex_double_bracket(body: str, match: re.Match[str]) -> bool:
+    """Return whether a ``[[...]]`` match is glued-on LaTeX notation."""
 
-    Wikilinks start at line beginning or after whitespace/punctuation. LaTeX
-    `[[` is glued to a preceding non-space token (the base ring or module).
-    This is the only reliable signal in-page: both forms use the same brackets.
-    """
     start = match.start()
     if start == 0:
         return False
     prev = body[start - 1]
-    # A wikilink is preceded by whitespace, line start, or opening punctuation.
-    # A LaTeX bracket is glued to the preceding math token (letter, brace, digit,
-    # or a closing bracket/paren from a subscript/superscript group).
-    return not prev.isspace() and prev not in {"(", "[", "{", "-", ">", ",", ";", ":"}
+    return not prev.isspace() and prev not in {
+        "(",
+        "[",
+        "{",
+        "-",
+        ">",
+        ",",
+        ";",
+        ":",
+    }
 
 
-def links_from_text(body: str) -> tuple[str, ...]:
-    links: list[str] = []
+def links_from_text(body: str) -> tuple[LinkRef, ...]:
+    links: list[LinkRef] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(kind: str, target: str) -> None:
+        key = (kind, target)
+        if target and key not in seen:
+            seen.add(key)
+            links.append(LinkRef(kind, target))
+
     for match in WIKILINK_RE.finditer(body):
-        if _is_latex_double_bracket(body, match):
-            continue
-        target = match.group(1).strip()
-        if target and target not in links:
-            links.append(target)
+        if not _is_latex_double_bracket(body, match):
+            add("wikilink", match.group(1).strip())
     for match in MD_LINK_RE.finditer(body):
-        target = match.group(1).strip()
-        if target and target not in links:
-            links.append(target)
+        target = (match.group(1) or match.group(2)).strip()
+        parsed = urlsplit(target)
+        if (
+            not parsed.scheme
+            and not parsed.netloc
+            and unquote(parsed.path).endswith(".md")
+        ):
+            add("markdown", target)
     return tuple(links)
 
 
 def link_key(target: str) -> str:
-    """Normalize a wiki link target for resolver lookup."""
+    """Normalize one bare wiki name for title/alias/stem lookup."""
 
-    stem = target.removesuffix(".md").split("/")[-1]
-    return re.sub(r"\s+", " ", stem.strip()).lower()
+    value = target.removesuffix(".md")
+    return re.sub(r"\s+", " ", value.strip()).casefold()
 
 
-def link_target_map(inventory: WikiInventory) -> dict[str, str]:
-    """Map file stems, titles, aliases, and source work ids to page paths."""
+def link_target_map(inventory: WikiInventory) -> dict[str, tuple[str, ...]]:
+    """Map each bare name to every page that claims it."""
 
-    targets: dict[str, str] = {}
+    targets: dict[str, set[str]] = {}
     for page in inventory.pages:
-        values = [page.path.removesuffix(".md").split("/")[-1], page.title, *page.aliases]
+        values = [Path(page.path).stem, page.title, *page.aliases]
         if page.page_type == "source":
             values.extend(page.work_ids)
         for value in values:
             key = link_key(value)
             if key:
-                targets.setdefault(key, page.path)
-    return targets
+                targets.setdefault(key, set()).add(page.path)
+    return {key: tuple(sorted(paths)) for key, paths in targets.items()}
+
+
+def _wiki_root_path(target: str) -> str | None:
+    raw = unquote(target.split("#", 1)[0])
+    if not raw or raw.startswith("/") or "\\" in raw:
+        return None
+    if not raw.endswith(".md"):
+        raw += ".md"
+    normalized = posixpath.normpath(posixpath.join("wiki", raw))
+    return normalized if normalized.startswith("wiki/") else None
+
+
+def _markdown_path(page: PageRecord, target: str) -> str | None:
+    parsed = urlsplit(target)
+    raw = unquote(parsed.path)
+    if not raw or raw.startswith("/") or "\\" in raw:
+        return None
+    normalized = posixpath.normpath(posixpath.join(posixpath.dirname(page.path), raw))
+    return normalized if normalized.startswith("wiki/") else None
+
+
+@dataclass(frozen=True)
+class LinkResolver:
+    paths: frozenset[str]
+    names: dict[str, tuple[str, ...]]
+
+    @classmethod
+    def from_inventory(cls, inventory: WikiInventory) -> "LinkResolver":
+        return cls(frozenset(inventory.by_path()), link_target_map(inventory))
+
+    def resolve(self, page: PageRecord, link: LinkRef) -> tuple[str, ...]:
+        """Resolve one link without discarding explicit paths or ambiguity."""
+
+        if link.kind == "markdown":
+            target = _markdown_path(page, link.target)
+            return (target,) if target in self.paths else ()
+        if "/" in link.target:
+            target = _wiki_root_path(link.target)
+            return (target,) if target in self.paths else ()
+        return self.names.get(link_key(link.target), ())
 
 
 def page_type_for(workspace: Workspace, path: Path) -> str:
@@ -187,7 +250,8 @@ def scan_wiki(workspace: Workspace) -> WikiInventory:
         metadata, body = parse_frontmatter(text)
         page_type = metadata.get("page_type") or page_type_for(workspace, path)
         title = metadata.get("title") or next(
-            (line[2:].strip() for line in body.splitlines() if line.startswith("# ")), path.stem
+            (line[2:].strip() for line in body.splitlines() if line.startswith("# ")),
+            path.stem,
         )
         work_ids = parse_inline_list(metadata.get("work_ids", ""))
         if not work_ids:

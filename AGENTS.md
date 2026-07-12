@@ -28,10 +28,12 @@ After every write to `wiki/`, from the Patchouli root:
 
 1. `python3 scripts/check_wiki.py` — the binding verifier. If it reports
    failures, FIX them and re-run until it exits 0. This is not optional.
-   Required schema, provenance, `work_id`, verbatim-quote faithfulness, and link
-   resolution are external facts you cannot invent; the check is where they are
-   enforced. When a quote fails, the surface is the authority — fix the page,
-   never the surface.
+   Required schema, canonical source paths, declared surface/version/locator
+   consistency, contiguous normalized matching for explicit quotes, and
+   deterministic internal-link resolution are external facts you cannot invent;
+   the check is where they are enforced. It does not prove that a paraphrase is
+   entailed or that every marker is attached to the right claim. When a quote
+   fails, the surface is the authority — fix the page, never the surface.
 2. `python3 scripts/indexes.py` — rebuild `wiki/index.md`, `wiki/recent.md`, and
    the graph.
 
@@ -49,7 +51,8 @@ no interpretive finish-gate: read what you need, decide, write, then verify.
 Before the first write, identify the intended tracked output paths; stop if one
 already contains uncommitted work (a modified tracked file or pre-existing
 untracked file). Unrelated unstaged paths may remain, but a writing contract
-starts only with a clean Git index. It ends by
+starts only with a clean Git index. Writing contracts assume one active writer;
+scoped commits do not make concurrent sessions safe. The contract ends by
 passing the exact tracked files it created, changed, or deleted to
 `python3 scripts/commit.py -m "<contract>: <object>" <path>...`; the helper rejects
 pre-staged changes, directories, paths outside that owned set, and hook-expanded

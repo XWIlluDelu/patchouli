@@ -6,19 +6,15 @@ import subprocess
 from typing import Any
 
 from file_state import atomic_write_text
-from wiki_inventory import WikiInventory, link_key, link_target_map, scan_wiki
+from wiki_inventory import LinkResolver, WikiInventory, scan_wiki
 from workspace_paths import Workspace
 
 INDEX_ORDER = ["synthesis", "concept", "entity", "source", "answer", "hub"]
 RECENT_LIMIT = 15
 
 
-def _resolve_link(target: str, targets: dict[str, str]) -> str | None:
-    return targets.get(link_key(target))
-
-
 def build_graph(workspace: Workspace, inventory: WikiInventory) -> dict[str, Any]:
-    targets = link_target_map(inventory)
+    links = LinkResolver.from_inventory(inventory)
     # index.md / recent.md are generated navigation, not knowledge — keep them out of
     # the graph's nodes and edges alike (a hub the agent authored is knowledge and stays).
     pages = [page for page in inventory.pages if page.page_type != "index"]
@@ -32,10 +28,10 @@ def build_graph(workspace: Workspace, inventory: WikiInventory) -> dict[str, Any
         }
         for work_id in page.work_ids:
             edges.append({"type": "page_work", "source": page.path, "target": work_id})
-        for target in page.links:
-            resolved = _resolve_link(target, targets)
-            if resolved and resolved != page.path:
-                edges.append({"type": "link", "source": page.path, "target": resolved})
+        for link in page.links:
+            resolved = links.resolve(page, link)
+            if len(resolved) == 1 and resolved[0] != page.path:
+                edges.append({"type": "link", "source": page.path, "target": resolved[0]})
     by_work: dict[str, list[str]] = {}
     for page in pages:
         for work_id in page.work_ids:

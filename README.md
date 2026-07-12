@@ -69,12 +69,13 @@ lines pools them, with automatic failover.
 
 ## What is enforced vs. what is judgment
 
-`scripts/check_wiki.py` runs after every write: required schema, provenance,
-work ids, verbatim-quote faithfulness against the extracted reading surface,
-link resolution — facts the agent cannot invent. Everything else — what is worth
-saying, how deep to integrate, whether a page is worth writing at all — is the
-agent's judgment. `scripts/lint.py` advises; it never blocks. The floor itself
-is tested: `python3 -m unittest discover -s tests`.
+`scripts/check_wiki.py` runs after every write. It enforces required schema,
+canonical source paths, declared work/surface/version/locator consistency,
+contiguous normalized matches for explicit quotes, and unique internal-link
+resolution. It does not prove that a paraphrase follows from its source, that a
+marker is attached to the right claim, or that a page is worth writing; those
+remain the agent's judgment. `scripts/lint.py` advises and never blocks. The
+floor itself is tested: `python3 -m unittest discover -s tests`.
 
 ## Layout
 

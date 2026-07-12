@@ -9,10 +9,9 @@ from wiki_inventory import (
     DURABLE_TYPES,
     PAGE_DIRS,
     PAGE_TYPES,
+    LinkResolver,
     PageRecord,
     WikiInventory,
-    link_key,
-    link_target_map,
     page_type_for,
     parse_inline_list,
     scan_wiki,
@@ -149,6 +148,16 @@ def _check_source(
         )
     else:
         seen_work_ids[work_id] = page.path
+        expected_page = f"wiki/sources/{work_id}.md"
+        if page.path != expected_page:
+            issues.append(
+                CheckIssue(
+                    "source_path_mismatch",
+                    page.path,
+                    f"source page must be {expected_page}",
+                    "move the page to the canonical path emitted by extract.py",
+                )
+            )
 
     if not version_id:
         issues.append(
@@ -363,7 +372,7 @@ def check_issues(
     ]
     seen_work_ids: dict[str, str] = {}
     source_work_ids = _source_work_ids(inventory)
-    link_targets = link_target_map(inventory)
+    links = LinkResolver.from_inventory(inventory)
 
     for page in inventory.pages:
         path_type = page_type_for(workspace, workspace.abspath(page.path))
@@ -390,14 +399,24 @@ def check_issues(
                     f"move it under wiki/{expected_dir}/ or fix page_type",
                 )
             )
-        for target in page.links:
-            if link_key(target) not in link_targets:
+        for link in page.links:
+            resolved = links.resolve(page, link)
+            if not resolved:
                 issues.append(
                     CheckIssue(
                         "broken_link",
                         page.path,
-                        f"link target not found: {target}",
-                        "link to an existing page title, alias, source work_id, or file stem",
+                        f"link target not found: {link.target}",
+                        "use an existing relative Markdown path or a unique wiki name",
+                    )
+                )
+            elif len(resolved) > 1:
+                issues.append(
+                    CheckIssue(
+                        "ambiguous_link",
+                        page.path,
+                        f"link target {link.target!r} matches: {', '.join(resolved)}",
+                        "use an explicit Markdown path or a wiki-root path such as `[[concepts/name]]`",
                     )
                 )
         if page.page_type == "source":

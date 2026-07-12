@@ -5,10 +5,9 @@ import re
 
 from wiki_inventory import (
     DURABLE_TYPES,
+    LinkResolver,
     WORK_MARKER_RE,
     WikiInventory,
-    link_key,
-    link_target_map,
     scan_wiki,
 )
 from workspace_paths import Workspace
@@ -48,7 +47,7 @@ def lint_wiki(workspace: Workspace, inventory: WikiInventory | None = None) -> l
 
     inventory = inventory or scan_wiki(workspace)
     findings: list[LintFinding] = []
-    link_targets = link_target_map(inventory)
+    links = LinkResolver.from_inventory(inventory)
     inbound: dict[str, int] = {page.path: 0 for page in inventory.pages}
     titles: dict[str, list[str]] = {}
 
@@ -56,10 +55,10 @@ def lint_wiki(workspace: Workspace, inventory: WikiInventory | None = None) -> l
         if page.page_type == "index":
             continue
         titles.setdefault(page.title.strip().lower(), []).append(page.path)
-        for target in page.links:
-            resolved = link_targets.get(link_key(target))
-            if resolved is not None and resolved != page.path:
-                inbound[resolved] = inbound.get(resolved, 0) + 1
+        for link in page.links:
+            resolved = links.resolve(page, link)
+            if len(resolved) == 1 and resolved[0] != page.path:
+                inbound[resolved[0]] = inbound.get(resolved[0], 0) + 1
         if page.page_type == "source":
             body_lower = page.body.lower()
             for phrase in SOURCE_POLLUTION_PHRASES:
