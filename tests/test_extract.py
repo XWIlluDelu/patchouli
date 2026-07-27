@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import replace
+import importlib.util
 import io
 import os
 import re
@@ -19,6 +20,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 import extract  # noqa: E402
 from workspace_paths import Workspace  # noqa: E402
+
+DOCLING_INSTALLED = importlib.util.find_spec("docling") is not None
 
 
 class PdfPackaging(unittest.TestCase):
@@ -476,6 +479,7 @@ class LocalContent(unittest.TestCase):
         self.assertIn("pdf-quality`", str(raised.exception))
         self.assertIn("pdf-quality-cpu`", str(raised.exception))
 
+    @unittest.skipUnless(DOCLING_INSTALLED, "install a pdf-quality extra")
     def test_pdf_initialization_failure_is_reported(self):
         with patch.object(
             extract,
@@ -487,6 +491,7 @@ class LocalContent(unittest.TestCase):
                     b"%PDF", "paper.pdf", "docling-enriched"
                 )
 
+    @unittest.skipUnless(DOCLING_INSTALLED, "install a pdf-quality extra")
     def test_pdf_pipeline_options_are_pinned_and_enabled(self):
         options = extract._pdf_pipeline_options()
         self.assertTrue(options.do_ocr)

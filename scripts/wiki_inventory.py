@@ -15,7 +15,6 @@ PAGE_DIRS = {
     "entities": "entity",
     "syntheses": "synthesis",
     "hubs": "hub",
-    "indexes": "index",
 }
 PAGE_TYPES = set(PAGE_DIRS.values())
 DURABLE_TYPES = {"concept", "entity", "synthesis"}

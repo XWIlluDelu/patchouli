@@ -21,7 +21,7 @@ from workspace_paths import Workspace
 
 TYPE_DIR = {page_type: page_dir for page_dir, page_type in PAGE_DIRS.items()}
 SUPPORT_HEADING_RE = re.compile(r"^##\s+Supporting works\s*$", re.IGNORECASE | re.MULTILINE)
-SUPPORT_TOKEN_RE = re.compile(r"`([^`]+)`")
+SUPPORT_ITEM_RE = re.compile(r"^\s*-\s+.*\s+—\s+`([^`\n]+)`\s*$", re.MULTILINE)
 SURFACE_SOURCE_RE = re.compile(r"^- Source:\s*(.+?)\s*$", re.MULTILINE)
 
 
@@ -49,13 +49,7 @@ def _split_support(body: str) -> tuple[str, str]:
 
 
 def support_work_ids(support_body: str) -> set[str]:
-    found: set[str] = set()
-    for token in SUPPORT_TOKEN_RE.findall(support_body):
-        value = token.strip().strip("[]")
-        if value:
-            found.add(value)
-    found.update(work_ids_from_text(support_body))
-    return found
+    return {value.strip() for value in SUPPORT_ITEM_RE.findall(support_body)}
 
 
 def _declared_work_ids(page: PageRecord) -> set[str]:

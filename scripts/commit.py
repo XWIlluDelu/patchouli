@@ -3,8 +3,9 @@
 Usage:
     python3 scripts/commit.py -m "ingest: 1706.03762" path [path ...]
 
-The index must be clean before invocation. Paths must be exact files inside the
-workspace; directories and repository-wide staging are rejected.
+The repository must have an existing commit and a clean index. Paths must be
+exact files inside the workspace; directories and repository-wide staging are
+rejected.
 """
 
 from __future__ import annotations
@@ -47,6 +48,15 @@ def head_paths(workspace: Workspace) -> tuple[str, ...]:
     return _nul_paths(result.stdout)
 
 
+def _head_oid(workspace: Workspace) -> str:
+    try:
+        return _git(workspace, "rev-parse", "--verify", "HEAD").stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            "repository needs an initial commit before operation-scoped commits"
+        ) from exc
+
+
 def _exact_paths(workspace: Workspace, values: list[str]) -> tuple[str, ...]:
     paths: list[str] = []
     for value in values:
@@ -72,6 +82,7 @@ def commit_paths(workspace: Workspace, message: str, values: list[str]) -> tuple
         raise SystemExit(
             "refusing to mix this contract with pre-staged changes: " + ", ".join(before)
         )
+    original_head = _head_oid(workspace)
     requested = _exact_paths(workspace, values)
     _git(workspace, "add", "--", *requested)
     staged = staged_paths(workspace)
@@ -93,14 +104,14 @@ def commit_paths(workspace: Workspace, message: str, values: list[str]) -> tuple
             capture=False,
         )
     except subprocess.CalledProcessError as exc:
-        _git(workspace, "reset", "--mixed", "HEAD")
+        _git(workspace, "reset", "--mixed", original_head)
         raise SystemExit(
             "git commit failed; the previously clean index was restored and "
             "working-tree changes were preserved"
         ) from exc
     committed = head_paths(workspace)
     if set(committed) != set(staged):
-        _git(workspace, "reset", "--mixed", "HEAD^")
+        _git(workspace, "reset", "--mixed", original_head)
         raise SystemExit(
             "a commit hook expanded the owned path set; the commit was rolled back. "
             f"Expected {sorted(staged)!r}, observed {sorted(committed)!r}"

@@ -45,6 +45,14 @@ class ScopedCommit(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
+    def test_requires_existing_history(self):
+        self.git("checkout", "--orphan", "root-commit")
+        self.git("rm", "-q", "-r", "--cached", ".")
+        self.put("first.md", "first\n")
+        with self.assertRaisesRegex(SystemExit, "initial commit"):
+            commit_paths(self.ws, "test: root", ["first.md"])
+        self.assertEqual(staged_paths(self.ws), ())
+
     def test_commits_only_exact_owned_file(self):
         self.put("owned.md", "new\n")
         self.put("unrelated.tmpdata", "leave me\n")

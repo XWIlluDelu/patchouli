@@ -359,6 +359,34 @@ class BindingFloor(unittest.TestCase):
         )
         self.assertIn("work_ids_mismatch", self.codes())
 
+    def test_supporting_works_requires_list_items(self):
+        self.put_surface("1706")
+        self.put("wiki/sources/1706.md", self.source())
+        self.durable(
+            "concept",
+            "concepts",
+            work_ids=["1706"],
+            body=(
+                "## Definition\n\nclaim (Work: 1706)\n\n## Supporting works\n\n"
+                "Narrative support (Work: 1706)"
+            ),
+        )
+        self.assertIn("support_work_ids_mismatch", self.codes())
+
+    def test_supporting_work_ignores_other_code_spans(self):
+        self.put_surface("1706")
+        self.put("wiki/sources/1706.md", self.source())
+        self.durable(
+            "concept",
+            "concepts",
+            work_ids=["1706"],
+            body=(
+                "## Definition\n\nclaim (Work: 1706)\n\n## Supporting works\n\n"
+                "- Paper discussing `Table 3` — `1706`"
+            ),
+        )
+        self.assertEqual(self.codes(), set())
+
     def test_each_supporting_work_must_ground_an_inline_claim(self):
         self.put_surface("a")
         self.put_surface("b")
@@ -531,6 +559,13 @@ class BindingFloor(unittest.TestCase):
             "---\ntitle: Referrer\npage_type: hub\n---\n\n[[concepts/item]]\n",
         )
         self.assertFalse({"broken_link", "ambiguous_link"} & self.codes())
+
+    def test_index_markdown_is_not_an_authored_page_type(self):
+        self.put(
+            "wiki/indexes/claims.md",
+            "---\ntitle: Claims\npage_type: index\n---\n\n# Claims\n",
+        )
+        self.assertIn("unknown_page_type", self.codes())
 
     def test_page_type_directory_mismatch(self):
         self.put(
