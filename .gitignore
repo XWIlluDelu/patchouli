@@ -1,6 +1,9 @@
 # Secrets — never commit real keys.
 .env
 
+# Optional local personal context. Copy personal.example.md to personal.md.
+personal.md
+
 # Python environments and caches — rebuild from pyproject.toml + uv.lock.
 __pycache__/
 *.pyc

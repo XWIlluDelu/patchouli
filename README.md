@@ -32,6 +32,11 @@ when growth is earned. `tastes/active.md` is the research
 taste the agent reads for emphasis; point it at another `tastes/*.md` to change
 what gets foregrounded.
 
+For local standing context, copy `personal.example.md` to `personal.md`. The
+local file is ignored by Git by default and may describe your background,
+research agenda, language or notation, and working preferences. It shapes
+emphasis and presentation, never evidence or wiki structure.
+
 ## Setup
 
 This workspace uses the high-quality `docling-enriched` PDF profile:
@@ -82,6 +87,7 @@ floor itself is tested: `python3 -m unittest discover -s tests`.
 ```
 AGENTS.md   entry point: routing, the contracts, the binding floor (CLAUDE.md links here)
 README.md   this file
+personal.example.md   template for optional local personal.md (ignored by default)
 pyproject.toml, uv.lock   common dependencies and mutually exclusive PDF profiles
 docs/       the design argument (llm-wiki-philosophy.md)
 prompts/    one task file per operation
