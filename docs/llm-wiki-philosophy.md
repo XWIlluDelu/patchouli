@@ -11,10 +11,10 @@ depends on where it comes from, and the earlier versions of this file blurred
 that. Three layers, in descending order of how much weight they can bear:
 
 - **Part I — Imported foundations.** What we take from the literature: the
-  reframe, the model-capability thesis, the single forward pass, the two failure
-  modes (gating on a proxy, polluting the context). Each names its source and
-  its boundary — including where we apply a result *by analogy* rather than on
-  its own terms. This layer is load-bearing.
+  reframe, the model-capability thesis, the coherent agent episode, and the two
+  failure modes (gating on a proxy, polluting the context). Each names its source
+  and its boundary — including where we apply a result *by analogy* rather than
+  on its own terms. This layer is load-bearing.
 - **Part II — Our requirements.** The engineering decisions those foundations
   and the product goal dictate: the asset/logistics split, one undivided pass,
   the objective floor, the first-class no-op, the contracts. These are *our*
@@ -79,23 +79,30 @@ it to agent orchestration. The strong form — "all orchestration decays" — is
 directional, not a theorem. We use it to bias toward thin, replaceable logistics
 and thick durable invariants, not as a proof that any given script is doomed.
 
-## I.3 The single forward pass, and when a loop is actually needed (Vaswani, Anthropic)
+## I.3 One coherent contract execution, not one API call (Anthropic, Vaswani)
 
-A single forward pass maps the whole context to output in one conditioned
-computation: attention ranges over the entire context and tokens are emitted
-against the result [9]. The cost an anti-multi-turn instinct is reaching for is
-paid when a *harness fragments one cognitive operation into several API calls
-joined by lossy serialization* [2]: one continuous reasoning process becomes two
-truncated ones, each rebuilt from a compressed summary of the last. An agent
-reading the files it chooses to read is *not* that — it is the model directing
-its own attention-gathering inside one continuous session, which is what these
-runtimes are built to do well. A genuine agentic loop earns its place only when
-the action space cannot be loaded into static context — when the next action
-depends on observing the consequences of the last in an environment [2].
+Patchouli's unit is semantic: one human request is routed to one contract and
+completed in one coherent agent episode. It is **not** a count of model API
+calls, tool turns, context continuations, or Transformer forward passes. A host
+runtime such as a coding-agent application may use many of those while
+preserving one continuous contract execution. The Transformer forward pass is an
+internal model computation [9]; it does not define the human–agent interface used
+here.
 
-**Boundary.** This bounds when a loop is *necessary* by the structure of the
-task, not by a measured survey of tasks. It is an architectural argument; Part V
-flags it as such.
+The fragmentation Patchouli resists is imposed one level higher: a harness
+splits one cognitive operation into fixed stages joined by lossy serialized
+handoffs [2] — for example, one model call writes a compressed outline, a second
+is allowed to see only that outline, and a third rewrites until a proxy accepts
+it. An agent reading files, observing tool results, and deciding what to read
+next inside the same episode is not that fragmentation; it is the runtime doing
+its job. A Patchouli-level loop earns its place when the task genuinely needs
+repeated environmental observation or when evaluation shows that the additional
+stage pays for itself.
+
+**Boundary.** This is an architectural default and an empirical bias, not a
+claim that all wiki tasks have been measured or that runtime-internal agent loops
+are unnecessary. The distinction between a coherent contract episode and one
+model call is load-bearing.
 
 ## I.4 Gating on a proxy degrades substance (Goodhart/Gao, Krakovna, Tam, Anthropic, yAI)
 
@@ -114,8 +121,8 @@ without spending its authoring budget on self-validation [6].
 
 **Boundary — read this carefully, it is where the rigor lives.** [10] and [12]
 describe *training-time and search-time* optimization; applying them to an
-*inference-time* finish-gate inside one generation is an **analogy** — the
-mechanism (a proxy made into a target is optimized at the expense of the
+*inference-time* finish-gate inside one contract execution is an **analogy** —
+the mechanism (a proxy made into a target is optimized at the expense of the
 objective) transfers, the setting differs. [11] is directly about inference-time
 output constraints and is the most on-point, but it is *contested* by later work
 on constrained decoding; it is cited as directional, not decisive. [6] is a
@@ -161,19 +168,22 @@ assumptions about today's tools. The common error is to pour effort into the
 replaceable machinery and under-invest in the durable structure. Invest in the
 wiki's structure and its invariants; expect to replace the rest.
 
-## II.2 Author in one undivided pass; forbid the two fragmenters
+## II.2 Author in one coherent episode; forbid the two harness-level fragmenters
 
-From I.3 and I.4. Each contract is one authoring pass: the agent reads the
-filesystem for context, decides, and writes. Two things fragment such a pass,
-and Patchouli forbids both. A *harness-imposed multi-call pipeline* — the
-program-that-calls-a-model shape — is gone by construction, because there is no
-program making the calls; the coding agent the user starts is the runtime, and
-it makes no model API calls of its own. An *interpretive finish-gate* — a loop
-that makes the model satisfy a quality check before it may stop, on a step
-budget — is forbidden by contract, because it is exactly the proxy-gating of I.4
-turned into a control-flow loop. The only loop after a write is the
-deterministic correction on the objective floor (II.3), which is not a quality
-judgment.
+From I.3 and I.4. Each contract is one authoring episode at the human–agent
+surface: the agent gathers context, decides, writes, and reports. The host
+runtime may use multiple model calls, continuations, and tool turns inside that
+episode. Patchouli does not count or constrain them.
+
+Two *harness-level* structures do fragment the contract, and Patchouli omits
+both. A fixed staged pipeline forces the reasoning through predetermined,
+serialized intermediate artifacts rather than letting the agent control its own
+attention. An interpretive finish-gate makes the model satisfy a subjective
+quality proxy before it may stop, often on a step budget. The only required loop
+after a write is deterministic correction on the objective floor (II.3), which
+is not a quality judgment. Any additional planner, evaluator, or refinement
+stage must earn its place through the task or through evaluation rather than by
+architectural habit.
 
 ## II.3 Verify objective invariants outside the pass; never gate on interpretive form
 
@@ -230,13 +240,13 @@ table in `AGENTS.md`. The scripts are deliberately *not* an orchestration layer.
 `extract.py` turns a source into a clean reading surface and prints its
 provenance; `search.py` discovers candidates into `searches/` and touches
 nothing in the wiki; `check_wiki.py` is the objective floor; `indexes.py`
-rebuilds navigation; `lint.py` advises; `commit.py` confines each contract's
-commit to its exact files. None of them retrieves wiki context for the model or
-decides what a page should say — that is the agent's, by reading and judging.
-Retrieval is *not* on the mechanical side: deciding what to read and what is
-relevant is judgment, and the inversion (a methodology directing an agent, not a
-program calling a model) is what lets the agent do it by reading the filesystem
-natively, within one session (I.3).
+rebuilds navigation; `lint.py` and `stale.py` advise; `commit.py` confines each
+contract's commit to its exact files. None of them retrieves wiki context for
+the model or decides what a page should say — that is the agent's, by reading and
+judging. Retrieval is *not* on the mechanical side: deciding what to read and
+what is relevant is judgment, and the inversion (a methodology directing an
+agent, not a program calling a model) is what lets the agent do it by reading the
+filesystem natively within one coherent episode (I.3).
 
 ## II.7 The human leaves the generation path but stays in the research agenda
 
@@ -259,8 +269,8 @@ both *consistent with* Part I and neither *establishing* it:
 
 - An arm whose loop made the model prove structural compliance before it could
   stop produced more truncated, aggregated synthesis and citation clutter than
-  an arm that kept the same conventions advisory and let the model write in one
-  pass. This is the signature I.4 predicts.
+  an arm that kept the same conventions advisory and let the model author in one
+  coherent episode. This is the signature I.4 predicts.
 - Given the same organize command, a selective arm declined most boundaries and
   produced far fewer durable pages than auto-promoting arms, with no human making
   the difference — the selectivity II.4 builds in, arising on its own. The
@@ -297,10 +307,11 @@ scripts extract, verify, resolve, and index. Mechanical-compliance work inside
 the authoring budget deforms judgment toward proxies. *(Foundations I.3, I.4;
 requirements II.2, II.6.)*
 
-**PR4 — Author in one undivided pass; add a loop only when the task needs
-environmental observation.** The two fragmenters — a harness multi-call pipeline
-and an interpretive finish-gate — are both absent by construction. *(Foundation
-I.3; requirement II.2.)*
+**PR4 — Complete each contract in one coherent agent episode; add a
+Patchouli-level loop only when the task or evaluation justifies it.** Model API
+calls, tool turns, and runtime-internal loops inside the episode do not count as
+fragmentation. The two fragmenters are a harness-imposed staged pipeline and an
+interpretive finish-gate. *(Foundation I.3; requirement II.2.)*
 
 **PR5 — Verify objective invariants outside the pass; never gate on interpretive
 form.** Work-ids, quotes, links, page types, provenance: checked after,
@@ -336,10 +347,11 @@ side than the verification side, the system is being built backward.
 ## What is well-supported and what is not
 
 The **structural argument** — wiki as asset and logistics as depreciating
-capital (I.1, I.2, II.1), one undivided pass with objective verification outside
-it (I.3, I.4, II.2, II.3), and selectivity because the wiki is its own future
-context (I.5, II.4, II.5) — is well-supported by the imported foundations, which
-are peer-reviewed or first-party engineering sources.
+capital (I.1, I.2, II.1), one coherent contract episode with objective
+verification outside it (I.3, I.4, II.2, II.3), and selectivity because the wiki
+is its own future context (I.5, II.4, II.5) — is supported by the imported
+foundations and by an explicit engineering choice about the human–agent surface.
+It is a design position, not a theorem.
 
 Two honest weak points, stated plainly:
 
@@ -347,12 +359,13 @@ Two honest weak points, stated plainly:
   formal results [10, 12] are about training/search-time optimization, not
   inference-time gating; the on-point empirical study [11] is disputed. The claim
   should be read as *"we follow the established design principle that gating on a
-  proxy degrades substance,"* not as *"this is proven for a single-generation
+  proxy degrades substance,"* not as *"this is proven for every inference-time
   finish-gate."* Its strength is convergence, not any one source.
-- **The "wiki operations almost never need an agentic loop" claim (I.3) is
-  structural, not measured.** It is stated as a default with an explicit escape
-  clause — an operation whose next action genuinely depends on observing the last
-  would narrow it — not as a law.
+- **The claim that wiki contracts seldom need a harness-imposed multi-stage loop
+  (I.3) is structural and experiential, not measured across all tasks.** It says
+  nothing about how many model calls or tool turns the host agent runtime uses.
+  The default has an explicit escape clause: a task or evaluation that shows a
+  real benefit from another Patchouli-level stage narrows it.
 
 The **A/P-series arm experience (Part III) is the weakest evidence in this
 document and does not bear weight anywhere.** It illustrates; it does not
@@ -362,10 +375,12 @@ establish.
 
 The same checklist the design is meant to pass:
 
-- One undivided authoring pass per contract, the agent reading the filesystem for
-  context (PR3, PR4)? Yes — each contract is a read-decide-write pass.
+- One coherent authoring episode per human–agent contract, regardless of the
+  runtime's internal model and tool turns (PR3, PR4)? Yes — each contract is one
+  semantic read-decide-write operation.
 - Objective invariants verified outside the pass, advisory on the rest, never
-  gating on form (PR5, PR10)? Yes — `check_wiki.py` binds, `lint.py` advises.
+  gating on form (PR5, PR10)? Yes — `check_wiki.py` binds; `lint.py` and
+  `stale.py` advise.
 - The no-op first-class, the model trusted to refuse (PR6)? Yes — every
   judgment-bearing authoring contract carries it; search records discovery
   without changing the wiki.
@@ -373,8 +388,8 @@ The same checklist the design is meant to pass:
   targeted synthesis and selective organize are the only durable-page paths.
 - The human in sourcing and asking, out of the generation path (PR9)? Yes.
 - Logistics thin on orchestration, thick on objective verification (PR10)? The
-  scripts are extraction, discovery, scoped commits, the floor, and indexes —
-  there is no orchestration layer.
+  scripts are extraction, discovery, scoped commits, checks, advisory scans, and
+  indexes — there is no model-calling orchestration layer.
 
 A "no" on any line is a named reason to reconsider, not a vague worry.
 
@@ -395,8 +410,8 @@ result is actively contested, and is used as directional only.
 - [2] Anthropic engineering, "Building Effective Agents," "Effective Context
   Engineering for AI Agents," "Writing Tools for AI Agents," and "Building Agents
   with the Claude Agent SDK." Capability lives in the model; the cost of
-  fragmenting reasoning across serialized turns; when an agentic loop is
-  warranted.
+  fragmenting reasoning across serialized harness stages; when workflows and
+  agent loops are warranted.
 - [3] Sutton, Richard, "The Bitter Lesson" (2019).
   <http://www.incompleteideas.net/IncIdeas/BitterLesson.html>. General methods
   that scale with compute defeat hand-engineered domain knowledge.
@@ -420,8 +435,8 @@ result is actively contested, and is used as directional only.
   <https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents>.
   Context as a finite attention budget; context rot.
 - [9] Vaswani et al., "Attention Is All You Need" (2017).
-  <https://arxiv.org/abs/1706.03762>. The forward pass: attention conditions on
-  the whole context in one mapping from context to output.
+  <https://arxiv.org/abs/1706.03762>. Architecture background: a Transformer
+  forward pass is an internal model computation, not Patchouli's contract unit.
 - [10] Gao, Leo, John Schulman, and Jacob Hilton, "Scaling Laws for Reward Model
   Overoptimization" (2022). <https://arxiv.org/abs/2210.10760>. Goodhart's law
   formalized: optimizing an imperfect proxy reward past a point degrades
