@@ -229,31 +229,57 @@ class EvalHarness(unittest.TestCase):
     def test_force_refuses_repository_root(self):
         suite_path = self.write_suite([self.simple_case()])
         with self.assertRaisesRegex(eval_module.EvalConfigError, "repository root"):
-            eval_module.prepare_suite(
-                suite_path, self.repo, self.repo, force=True
-            )
+            eval_module.prepare_suite(suite_path, self.repo, self.repo, force=True)
         self.assertEqual((self.repo / "base.txt").read_text(), "base\n")
 
-    def test_force_refuses_unrelated_nonempty_directory(self):
+    def test_force_refuses_unrelated_nonempty_directory_even_with_suite_json(self):
         suite_path = self.write_suite([self.simple_case()])
         unrelated = self.root / "unrelated"
         unrelated.mkdir()
-        (unrelated / "keep.txt").write_text("keep\n", encoding="utf-8")
+        (unrelated / "suite.json").write_text("{}\n", encoding="utf-8")
         with self.assertRaisesRegex(eval_module.EvalConfigError, "unrelated directory"):
-            eval_module.prepare_suite(
-                suite_path, self.repo, unrelated, force=True
-            )
-        self.assertEqual((unrelated / "keep.txt").read_text(), "keep\n")
+            eval_module.prepare_suite(suite_path, self.repo, unrelated, force=True)
+        self.assertEqual((unrelated / "suite.json").read_text(), "{}\n")
 
     def test_force_replaces_a_recognized_eval_run(self):
         suite_path = self.write_suite([self.simple_case()])
         eval_module.prepare_suite(suite_path, self.repo, self.output)
         (self.output / "temporary.txt").write_text("replace me\n", encoding="utf-8")
-        eval_module.prepare_suite(
-            suite_path, self.repo, self.output, force=True
-        )
+        eval_module.prepare_suite(suite_path, self.repo, self.output, force=True)
         self.assertFalse((self.output / "temporary.txt").exists())
         self.assertTrue((self.output / ".patchouli-eval-run").is_file())
+
+    def test_prepare_rejects_symlink_outside_repository(self):
+        outside = self.root / "outside.txt"
+        outside.write_text("private\n", encoding="utf-8")
+        link = self.repo / "outside-link.txt"
+        try:
+            link.symlink_to(outside)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        suite_path = self.write_suite([self.simple_case()])
+        with self.assertRaisesRegex(eval_module.EvalConfigError, "escapes repository"):
+            eval_module.prepare_suite(suite_path, self.repo, self.output)
+
+    def test_prepare_rejects_directory_symlink(self):
+        target = self.repo / "real-directory"
+        target.mkdir()
+        (target / "item.txt").write_text("item\n", encoding="utf-8")
+        link = self.repo / "directory-link"
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        suite_path = self.write_suite([self.simple_case()])
+        with self.assertRaisesRegex(eval_module.EvalConfigError, "directory symlinks"):
+            eval_module.prepare_suite(suite_path, self.repo, self.output)
+
+    def test_overlay_cannot_be_repository_root(self):
+        case = self.simple_case()
+        case["overlay"] = "."
+        suite_path = self.write_suite([case])
+        with self.assertRaisesRegex(eval_module.EvalConfigError, "subdirectory"):
+            eval_module.prepare_suite(suite_path, self.repo, self.output)
 
 
 if __name__ == "__main__":

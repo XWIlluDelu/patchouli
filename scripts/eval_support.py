@@ -156,6 +156,15 @@ def _safe_relative(root: Path, value: str, *, label: str) -> Path:
     return candidate
 
 
+def _overlay_path(repo_root: Path, value: str) -> Path:
+    path = _safe_relative(repo_root, value, label="overlay")
+    if path == repo_root.resolve():
+        raise EvalConfigError("overlay must be a subdirectory, not the repository root")
+    if not path.is_dir():
+        raise EvalConfigError(f"overlay is not a directory: {value}")
+    return path
+
+
 def _hide_path(repo_root: Path, path: Path) -> list[str]:
     try:
         rel = path.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -177,9 +186,7 @@ def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -
         if _excluded(rel, patterns):
             continue
         target = destination / rel
-        if path.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-        elif path.is_symlink():
+        if path.is_symlink():
             resolved = path.resolve()
             try:
                 resolved.relative_to(source_root)
@@ -195,6 +202,8 @@ def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -
                 raise EvalConfigError(f"broken workspace symlink: {rel}")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(resolved, target)
+        elif path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
         elif path.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
@@ -203,10 +212,7 @@ def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -
 def apply_overlay(repo_root: Path, workspace: Path, overlay: str | None) -> None:
     if overlay is None:
         return
-    overlay_path = _safe_relative(repo_root, overlay, label="overlay")
-    if not overlay_path.is_dir():
-        raise EvalConfigError(f"overlay is not a directory: {overlay}")
-    shutil.copytree(overlay_path, workspace, dirs_exist_ok=True)
+    shutil.copytree(_overlay_path(repo_root, overlay), workspace, dirs_exist_ok=True)
 
 
 def initialize_git(workspace: Path) -> None:
@@ -315,9 +321,7 @@ def _replace_output(output_root: Path, *, force: bool) -> None:
             f"output directory exists: {output_root}; pass --force to replace it"
         )
     empty = not any(output_root.iterdir())
-    recognized = (output_root / RUN_MARKER).is_file() or (
-        output_root / "suite.json"
-    ).is_file()
+    recognized = (output_root / RUN_MARKER).is_file()
     if not empty and not recognized:
         raise EvalConfigError(
             f"refusing to replace an unrelated directory: {output_root}"
@@ -338,12 +342,8 @@ def prepare_suite(
     hidden = _hide_path(repo_root, suite_path)
     for case in suite["cases"]:
         overlay = case.get("overlay")
-        if overlay is None:
-            continue
-        overlay_path = _safe_relative(repo_root, overlay, label="overlay")
-        if not overlay_path.is_dir():
-            raise EvalConfigError(f"overlay is not a directory: {overlay}")
-        hidden.extend(_hide_path(repo_root, overlay_path))
+        if overlay is not None:
+            hidden.extend(_hide_path(repo_root, _overlay_path(repo_root, overlay)))
 
     try:
         output_rel = output_root.resolve().relative_to(repo_root.resolve()).as_posix()

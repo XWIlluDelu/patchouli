@@ -16,7 +16,13 @@ Gold material is isolated as well. The suite file, every configured overlay,
 `evals/`, and `tests/` are hidden from the case workspace before the selected
 overlay is applied at its destination. An agent can inspect the ordinary
 Patchouli framework, but not the benchmark answer key or the fixture's original
-location.
+location. Overlays must be repository subdirectories rather than the repository
+root.
+
+Repository-internal file symlinks such as `CLAUDE.md` or `tastes/active.md` are
+materialized as regular files. Directory symlinks, broken symlinks, and symlinks
+that escape the repository are rejected so a case is a finite, reproducible copy
+of the framework rather than an alias into unrelated state.
 
 ## Fast start
 
@@ -62,11 +68,11 @@ A timeout is recorded as a failed case rather than leaving the suite hanging.
 
 ## Output replacement
 
-`--force` removes only a directory created by the evaluation harness (recognized
-by its marker or frozen `suite.json`) or an empty directory. It refuses the
-repository root, any ancestor of the repository, and unrelated non-empty
-directories. This keeps a mistyped `--output` from turning fixture cleanup into a
-destructive filesystem operation.
+`--force` removes only an empty directory or a directory carrying Patchouli's
+dedicated evaluation-run marker. It refuses the repository root, any ancestor of
+the repository, and unrelated non-empty directories. A coincidental
+`suite.json` is not sufficient. This keeps a mistyped `--output` from turning
+fixture cleanup into a destructive filesystem operation.
 
 ## What the first suite measures
 
