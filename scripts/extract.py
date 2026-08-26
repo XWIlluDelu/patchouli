@@ -608,10 +608,15 @@ def main(argv: list[str] | None = None) -> int:
         surface = workspace.confined(workspace.extracted, work_id, "text.md")
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    if surface.exists() and args.refresh and not extraction.complete:
-        raise SystemExit(
-            f"could not refresh {workspace.relpath(surface)} with an incomplete capture; "
+    if not extraction.complete:
+        preserved = (
             "the existing raw files and reading surface were left unchanged"
+            if surface.exists()
+            else "no raw files or reading surface were written"
+        )
+        raise SystemExit(
+            f"could not publish {workspace.relpath(surface)} from an incomplete capture; "
+            f"{preserved}. Retry when the full body is available or ingest a local PDF"
         )
     version_id = content_version_id(extraction.text)
     if surface.exists() and not args.refresh:
