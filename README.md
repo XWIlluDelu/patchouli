@@ -28,9 +28,9 @@ Start your agent in this folder (`pi`, `codex`, or `claude`); it reads
 
 A knowledge or note change that is not justified returns `NO_OP: <reason>`
 instead of writing; search still records discovery attempts. The wiki grows only
-when growth is earned. `tastes/active.md` is the research
-taste the agent reads for emphasis; point it at another `tastes/*.md` to change
-what gets foregrounded.
+when growth is earned. `tastes/active.md` is the research taste the agent reads
+for emphasis; point it at another `tastes/*.md` to change what gets
+foregrounded.
 
 For local standing context, copy `personal.example.md` to `personal.md`. The
 local file is ignored by Git by default and may describe your background,
@@ -79,8 +79,32 @@ canonical source paths, declared work/surface/version/locator consistency,
 contiguous normalized matches for explicit quotes, and unique internal-link
 resolution. It does not prove that a paraphrase follows from its source, that a
 marker is attached to the right claim, or that a page is worth writing; those
-remain the agent's judgment. `scripts/lint.py` advises and never blocks. The
-floor itself is tested: `python3 -m unittest discover -s tests`.
+remain the agent's judgment.
+
+Two advisory tools never block a write:
+
+- `scripts/lint.py` reports content-health signals such as citation clutter,
+  orphans, and duplicate titles;
+- `scripts/stale.py` reports committed answers and durable pages whose compiled
+  source pages have changed since the derived page's last revision.
+
+A stale report is a maintenance queue, not a correctness verdict. The floor and
+advisory tools are tested with `python3 -m unittest discover -s tests`.
+
+## Source refreshes
+
+`extract.py --refresh` replaces the tracked reading surface only for a new
+capture of the same work. The source page and surface are then updated in one
+operation, while Git retains the previous state. After a refresh, run:
+
+```sh
+python3 scripts/stale.py
+```
+
+The scan compares each committed answer, concept, entity, and synthesis with the
+source-page blobs that existed at that page's last commit. It names pages to
+review but does not rewrite or invalidate them automatically: an updated source
+may leave a derived claim unchanged.
 
 ## Layout
 
@@ -92,8 +116,8 @@ pyproject.toml, uv.lock   common dependencies and mutually exclusive PDF profile
 docs/       the design argument (llm-wiki-philosophy.md)
 prompts/    one task file per operation
 system/     page_templates.md — structural source of truth for every page type
-scripts/    extract, search, check_wiki, lint, indexes, scoped commit — deterministic parts
-tests/      unittest suite for the deterministic logistics
+scripts/    extract, search, checks, stale review, indexes, and scoped commit
+tests/      unittest suite for deterministic logistics
 tastes/     research tastes; active.md is the one in force
 wiki/       the asset: sources, concepts, entities, syntheses, answers, hubs, indexes
 extracted/  tracked current reading surfaces; explicit refreshes are retained by Git

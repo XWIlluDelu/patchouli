@@ -8,12 +8,20 @@ pages. Correct an answer or durable page only against its compiled supporting
 pages. New evidence is ingested separately, and disagreement remains a tension
 rather than rewriting an older work to agree.
 
-For a general maintenance sweep, run `python3 scripts/lint.py` and read its
-advisory findings (citation clutter, workflow residue, orphans, duplicate
-titles); the binding floor already blocks broken links, missing schema or
-support, and single-work syntheses. Scan for what no script can judge: pages
-superseded by later ingests, near-duplicate concepts under different names,
-tensions a newer work has resolved, and thin pages not worth keeping.
+For a general maintenance sweep, run both advisory scans:
+
+- `python3 scripts/lint.py` for citation clutter, workflow residue, orphans, and
+  duplicate titles;
+- `python3 scripts/stale.py` for committed answers and durable pages whose
+  compiled source-page blobs have changed since the page's last revision.
+
+A stale finding is a review candidate, not a defect. Re-read the current
+supporting source pages and revise only when the source change affects the page;
+otherwise no-op-keep it and say why. The binding floor already blocks broken
+links, missing schema or support, and single-work syntheses. Also scan for what
+no script can judge: pages superseded by later ingests, near-duplicate concepts
+under different names, tensions a newer work has resolved, and thin pages not
+worth keeping.
 
 Revise only a real, fixable problem. No-op-keep a page when a finding is a false
 positive or the page is still justified as-is, and say why. A clean wiki

@@ -4,8 +4,8 @@ You are the research-wiki maintainer for this folder. Patchouli is a methodology
 plus a few deterministic tools; you are the intelligence. The user talks to you
 in natural language; you route each request to one of the contracts below, do
 the judgment work in your own reasoning, and call the scripts only for the
-deterministic parts: extraction, discovery, scoped commits, the binding checks,
-and index rebuilds.
+deterministic parts: extraction, discovery, scoped commits, binding checks,
+advisory dependency scans, and index rebuilds.
 
 ## Routing: natural language → contract
 
@@ -37,8 +37,17 @@ After every write to `wiki/`, from the Patchouli root:
 2. `python3 scripts/indexes.py` — rebuild `wiki/index.md`, `wiki/recent.md`, and
    the graph.
 
-`python3 scripts/lint.py` is advisory. Read it, act on what is real (citation
-clutter, orphans, duplicate titles), and never let it block a write. Everything
+Two scripts advise and never block:
+
+- `python3 scripts/lint.py` reports citation clutter, workflow residue, orphans,
+  and duplicate titles.
+- `python3 scripts/stale.py` compares each committed answer or durable page with
+  the compiled source-page blobs that existed at its last revision. A finding
+  means "review this page," not "this page is wrong"; an updated source may
+  leave the derived claim intact. Uncommitted derived pages are skipped as
+  active drafts.
+
+Act on advisory findings only when the underlying problem is real. Everything
 outside the binding floor — what is worth saying, how deep to integrate, whether
 a page is worth writing at all — is your judgment, and the wiki is better when
 you exercise it.
@@ -56,12 +65,14 @@ scoped commits do not make concurrent sessions safe. The contract ends by
 passing the exact tracked files it created, changed, or deleted to
 `python3 scripts/commit.py -m "<contract>: <object>" <path>...`; the helper rejects
 pre-staged changes, directories, paths outside that owned set, and hook-expanded
-commits. Never use repository-wide staging. History is what makes pruning, and every
-other write, reversible. Each contract's task file carries the procedure; below
-is only the line each one must not cross.
+commits. Never use repository-wide staging. History is what makes pruning, and
+every other write, reversible. Each contract's task file carries the procedure;
+below is only the line each one must not cross.
 
 - **ingest** — compile one source into a single `wiki/sources/` page; refresh a
-  changed version only as the same work; never create a durable page here.
+  changed version only as the same work; after a refresh, report stale review
+  candidates but never maintain them in the ingest operation; never create a
+  durable page here.
 - **search** — discovery only: it writes `searches/`, never touches `wiki/`, and
   never ingests. Report the candidate-file path and stop.
 - **ask** — answer from the compiled wiki only, never from `raw/`/`extracted/`;
@@ -71,8 +82,9 @@ is only the line each one must not cross.
 - **organize** — create or update a durable page or navigation hub only where a
   boundary or reading path genuinely earns one; declining most candidates is
   expected; update before you duplicate.
-- **maintain** — correct a page only against the evidence it represents; revise
-  other real, fixable problems; no-op-keep the rest with a reason.
+- **maintain** — correct a page only against the evidence it represents; review
+  real stale candidates and other fixable problems; no-op-keep the rest with a
+  reason.
 - **polish** — proofread what the user names, a note or a passage within one, on
   request only: mechanics and sentence-level phrasing; structural changes wait
   for a yes; never touches `wiki/`.
@@ -85,10 +97,10 @@ is only the line each one must not cross.
   `docling-enriched` profile for local PDFs. The balanced and fast dependency
   profiles documented under `docs/` are reproducibility records, not extraction
   fallbacks. The surface records the production profile. When its content or PDF
-  profile changes, `extract.py` may replace the surface only with
-  explicit `--refresh`; then re-read and update the source page in the same
-  commit. Git retains the prior tracked surface. If an extraction is damaged,
-  record that in the source page's `## Extraction caveats`.
+  profile changes, `extract.py` may replace the surface only with explicit
+  `--refresh`; then re-read and update the source page in the same commit. Git
+  retains the prior tracked surface. If an extraction is damaged, record that in
+  the source page's `## Extraction caveats`.
 - `wiki/` is derived, maintained knowledge. Every claim here traces back to a
   source.
 - `notes/` is human-written, only ever. The one operation that edits it is
