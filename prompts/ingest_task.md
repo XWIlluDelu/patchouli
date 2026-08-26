@@ -15,7 +15,9 @@ Compile one source into a single page under `wiki/sources/`.
    user requested an update, re-run with `--refresh`, then update the source
    page and commit both tracked files together. Switching a PDF profile also
    requires `--refresh`. Never use refresh to resolve a collision between
-   distinct works.
+   distinct works. The extractor refuses to publish an arxiv capture when the
+   full body is unavailable; retry later or ingest a local PDF rather than
+   compiling the abstract as the work.
 2. Read the reading surface in full. Read related wiki pages (search
    `wiki/sources/`, `wiki/concepts/`, `wiki/syntheses/` for the topic) so you
    can place the source and surface any tension.
@@ -36,6 +38,11 @@ any durable page here: targeted synthesis belongs to `synthesize`; discovered
 concept, entity, synthesis, and hub boundaries belong to `organize`.
 
 Then run the binding floor (`check_wiki.py` → fix any failures → `indexes.py`;
-`lint.py` is advisory). Return `NO_OP: <reason>` if the same version is already
-covered at equal or greater depth. A user selection containing several sources
-is several complete ingest operations, never one multi-source page.
+`lint.py` is advisory). After refreshing an existing work and updating its
+source page, run `python3 scripts/stale.py` and report any derived pages it names
+as review candidates. Do not maintain those pages inside ingest: a changed
+source does not by itself prove that a derived page is wrong.
+
+Return `NO_OP: <reason>` if the same version is already covered at equal or
+greater depth. A user selection containing several sources is several complete
+ingest operations, never one multi-source page.
