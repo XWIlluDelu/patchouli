@@ -32,6 +32,11 @@ when growth is earned. `tastes/active.md` is the research
 taste the agent reads for emphasis; point it at another `tastes/*.md` to change
 what gets foregrounded.
 
+For local standing context, copy `personal.example.md` to `personal.md`. The
+local file is ignored by Git by default and may describe your background,
+research agenda, language or notation, and working preferences. It shapes
+emphasis and presentation, never evidence or wiki structure.
+
 ## Setup
 
 This workspace uses the high-quality `docling-enriched` PDF profile:
@@ -77,17 +82,43 @@ marker is attached to the right claim, or that a page is worth writing; those
 remain the agent's judgment. `scripts/lint.py` advises and never blocks. The
 floor itself is tested: `python3 -m unittest discover -s tests`.
 
+## Evaluation
+
+`scripts/eval.py` provides a runtime-agnostic evaluation harness without an LLM
+client. It copies the framework into isolated case workspaces, optionally applies
+small fixture overlays, initializes a baseline Git commit for the scoped-commit
+contract, lets a user-supplied agent CLI execute each request, and grades
+observable outcomes: `NO_OP` versus write, changed paths, content assertions,
+and the binding floor.
+
+Prepare the included low-cost smoke suite for manual execution:
+
+```sh
+python3 scripts/eval.py prepare evals/smoke.json
+```
+
+Or run it through a non-interactive agent command:
+
+```sh
+python3 scripts/eval.py run evals/smoke.json --force \
+  --adapter-command 'claude -p "$PATCHOULI_EVAL_REQUEST"'
+```
+
+See `evals/README.md` for the adapter protocol and suite schema.
+
 ## Layout
 
 ```
 AGENTS.md   entry point: routing, the contracts, the binding floor (CLAUDE.md links here)
 README.md   this file
+personal.example.md   template for optional local personal.md (ignored by default)
 pyproject.toml, uv.lock   common dependencies and mutually exclusive PDF profiles
 docs/       the design argument (llm-wiki-philosophy.md)
+evals/      runtime-agnostic suites and synthetic fixture overlays
 prompts/    one task file per operation
 system/     page_templates.md — structural source of truth for every page type
-scripts/    extract, search, check_wiki, lint, indexes, scoped commit — deterministic parts
-tests/      unittest suite for the deterministic logistics
+scripts/    extract, search, checks, indexes, scoped commit, and evaluation harness
+tests/      unittest suite for deterministic logistics and evaluation grading
 tastes/     research tastes; active.md is the one in force
 wiki/       the asset: sources, concepts, entities, syntheses, answers, hubs, indexes
 extracted/  tracked current reading surfaces; explicit refreshes are retained by Git

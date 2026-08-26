@@ -1,6 +1,9 @@
 # Secrets — never commit real keys.
 .env
 
+# Optional local personal context. Copy personal.example.md to personal.md.
+personal.md
+
 # Python environments and caches — rebuild from pyproject.toml + uv.lock.
 __pycache__/
 *.pyc
@@ -9,6 +12,9 @@ __pycache__/
 .pytest_cache/
 *.tmp
 .pi-subagents/
+
+# Local evaluation workspaces and model outputs.
+.patchouli-eval-runs/
 
 # Current source captures are gitignored; the wiki and extracted reading
 # surfaces are the tracked assets.

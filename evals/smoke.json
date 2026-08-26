@@ -1,0 +1,56 @@
+{
+  "name": "Patchouli smoke",
+  "exclude": [
+    "raw/**",
+    "searches/**",
+    "wiki/index.md",
+    "wiki/recent.md",
+    "wiki/indexes/wiki-graph.json"
+  ],
+  "cases": [
+    {
+      "id": "ask-unsupported-no-op",
+      "request": "What does the wiki say about sleep deprivation and zebrafish spatial memory?",
+      "expect": {
+        "outcome": "no_op",
+        "allowed_changes": [],
+        "check_wiki": true
+      }
+    },
+    {
+      "id": "ask-supported-number",
+      "overlay": "evals/fixtures/demo-study",
+      "request": "What does the wiki say about the sample size and main result in Demo Study?",
+      "expect": {
+        "outcome": "write",
+        "allowed_changes": [
+          "wiki/answers/*.md"
+        ],
+        "required_changes": [
+          "wiki/answers/*.md"
+        ],
+        "check_wiki": true,
+        "content": [
+          {
+            "path": "wiki/answers/*.md",
+            "contains": [
+              "120",
+              "18%",
+              "demo-study"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "synthesize-one-work-no-op",
+      "overlay": "evals/fixtures/demo-study",
+      "request": "Synthesize the spaced-practice evidence across the wiki.",
+      "expect": {
+        "outcome": "no_op",
+        "allowed_changes": [],
+        "check_wiki": true
+      }
+    }
+  ]
+}
