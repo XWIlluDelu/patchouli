@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 DEFAULT_OUTPUT = Path(".patchouli-eval-runs")
 DEFAULT_TIMEOUT_SECONDS = 900.0
+RUN_MARKER = ".patchouli-eval-run"
 DEFAULT_EXCLUDE = (
     ".git",
     ".git/**",
@@ -32,6 +33,11 @@ DEFAULT_EXCLUDE = (
     "**/*.pyc",
     ".patchouli-eval-runs",
     ".patchouli-eval-runs/**",
+    # Gold suites, fixture sources, and grader tests must not be visible to the agent.
+    "evals",
+    "evals/**",
+    "tests",
+    "tests/**",
 )
 
 
@@ -86,6 +92,7 @@ def load_suite(path: Path) -> dict[str, Any]:
         case_id = raw.get("id")
         request = raw.get("request")
         expect = raw.get("expect")
+        overlay = raw.get("overlay")
         if not isinstance(case_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", case_id):
             raise EvalConfigError(f"invalid case id: {case_id!r}")
         if case_id in seen:
@@ -94,6 +101,8 @@ def load_suite(path: Path) -> dict[str, Any]:
             raise EvalConfigError(f"case {case_id}: request must be non-empty text")
         if not isinstance(expect, dict):
             raise EvalConfigError(f"case {case_id}: expect must be an object")
+        if overlay is not None and not isinstance(overlay, str):
+            raise EvalConfigError(f"case {case_id}: overlay must be a path string")
         outcome = expect.get("outcome", "any")
         if outcome not in {"any", "no_op", "write"}:
             raise EvalConfigError(f"case {case_id}: invalid outcome {outcome!r}")
@@ -147,10 +156,22 @@ def _safe_relative(root: Path, value: str, *, label: str) -> Path:
     return candidate
 
 
+def _hide_path(repo_root: Path, path: Path) -> list[str]:
+    try:
+        rel = path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return []
+    values = [rel]
+    if path.is_dir():
+        values.append(f"{rel}/**")
+    return values
+
+
 def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -> None:
     if destination.exists():
         raise EvalConfigError(f"workspace already exists: {destination}")
     destination.mkdir(parents=True)
+    source_root = source.resolve()
     for path in sorted(source.rglob("*")):
         rel = path.relative_to(source).as_posix()
         if _excluded(rel, patterns):
@@ -159,12 +180,21 @@ def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -
         if path.is_dir():
             target.mkdir(parents=True, exist_ok=True)
         elif path.is_symlink():
-            target.parent.mkdir(parents=True, exist_ok=True)
             resolved = path.resolve()
-            if resolved.is_file():
-                shutil.copy2(resolved, target)
-            elif resolved.is_dir():
-                shutil.copytree(resolved, target, dirs_exist_ok=True)
+            try:
+                resolved.relative_to(source_root)
+            except ValueError as exc:
+                raise EvalConfigError(
+                    f"workspace symlink escapes repository: {rel} -> {resolved}"
+                ) from exc
+            if resolved.is_dir():
+                raise EvalConfigError(
+                    f"directory symlinks are not supported in eval workspaces: {rel}"
+                )
+            if not resolved.is_file():
+                raise EvalConfigError(f"broken workspace symlink: {rel}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved, target)
         elif path.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
@@ -266,6 +296,35 @@ def prepare_case(
     return paths
 
 
+def _validate_output_root(repo_root: Path, output_root: Path) -> None:
+    repo = repo_root.resolve()
+    output = output_root.resolve()
+    if output == repo:
+        raise EvalConfigError("evaluation output must not be the repository root")
+    if repo.is_relative_to(output):
+        raise EvalConfigError("evaluation output must not contain the repository root")
+
+
+def _replace_output(output_root: Path, *, force: bool) -> None:
+    if not output_root.exists():
+        return
+    if not output_root.is_dir():
+        raise EvalConfigError(f"output path is not a directory: {output_root}")
+    if not force:
+        raise EvalConfigError(
+            f"output directory exists: {output_root}; pass --force to replace it"
+        )
+    empty = not any(output_root.iterdir())
+    recognized = (output_root / RUN_MARKER).is_file() or (
+        output_root / "suite.json"
+    ).is_file()
+    if not empty and not recognized:
+        raise EvalConfigError(
+            f"refusing to replace an unrelated directory: {output_root}"
+        )
+    shutil.rmtree(output_root)
+
+
 def prepare_suite(
     suite_path: Path,
     repo_root: Path,
@@ -274,24 +333,31 @@ def prepare_suite(
     force: bool = False,
 ) -> list[CasePaths]:
     suite = load_suite(suite_path)
+    _validate_output_root(repo_root, output_root)
+
+    hidden = _hide_path(repo_root, suite_path)
+    for case in suite["cases"]:
+        overlay = case.get("overlay")
+        if overlay is None:
+            continue
+        overlay_path = _safe_relative(repo_root, overlay, label="overlay")
+        if not overlay_path.is_dir():
+            raise EvalConfigError(f"overlay is not a directory: {overlay}")
+        hidden.extend(_hide_path(repo_root, overlay_path))
+
     try:
         output_rel = output_root.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError:
         output_rel = None
     if output_rel:
+        hidden.extend((output_rel, f"{output_rel}/**"))
+    if hidden:
         suite = dict(suite)
-        suite["exclude"] = [
-            *suite.get("exclude", []),
-            output_rel,
-            f"{output_rel}/**",
-        ]
-    if output_root.exists():
-        if not force:
-            raise EvalConfigError(
-                f"output directory exists: {output_root}; pass --force to replace it"
-            )
-        shutil.rmtree(output_root)
+        suite["exclude"] = [*suite.get("exclude", []), *hidden]
+
+    _replace_output(output_root, force=force)
     output_root.mkdir(parents=True)
+    (output_root / RUN_MARKER).write_text("Patchouli evaluation run\n", encoding="utf-8")
     (output_root / "suite.json").write_text(
         json.dumps(suite, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

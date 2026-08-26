@@ -12,6 +12,12 @@ adapter command supplied by the user. Local `.env` and `personal.md` files are
 not copied into cases; adapters inherit the caller's environment when they need
 provider credentials.
 
+Gold material is isolated as well. The suite file, every configured overlay,
+`evals/`, and `tests/` are hidden from the case workspace before the selected
+overlay is applied at its destination. An agent can inspect the ordinary
+Patchouli framework, but not the benchmark answer key or the fixture's original
+location.
+
 ## Fast start
 
 From the Patchouli root, prepare workspaces for manual runs:
@@ -53,6 +59,14 @@ The adapter receives:
 
 Stdout becomes `response.txt` unless the adapter writes the response file itself.
 A timeout is recorded as a failed case rather than leaving the suite hanging.
+
+## Output replacement
+
+`--force` removes only a directory created by the evaluation harness (recognized
+by its marker or frozen `suite.json`) or an empty directory. It refuses the
+repository root, any ancestor of the repository, and unrelated non-empty
+directories. This keeps a mistyped `--output` from turning fixture cleanup into a
+destructive filesystem operation.
 
 ## What the first suite measures
 

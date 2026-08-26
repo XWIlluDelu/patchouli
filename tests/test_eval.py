@@ -27,10 +27,12 @@ class EvalHarness(unittest.TestCase):
         (self.repo / "scripts/check_wiki.py").write_text(
             "print('wiki checks passed')\n", encoding="utf-8"
         )
-        (self.repo / "overlay/wiki/sources").mkdir(parents=True)
-        (self.repo / "overlay/wiki/sources/source.md").write_text(
-            "source\n", encoding="utf-8"
-        )
+        fixture = self.repo / "evals/fixtures/demo/wiki/sources/source.md"
+        fixture.parent.mkdir(parents=True)
+        fixture.write_text("source\n", encoding="utf-8")
+        (self.repo / "evals/gold.txt").write_text("do not show the agent\n", encoding="utf-8")
+        (self.repo / "tests").mkdir()
+        (self.repo / "tests/gold.py").write_text("EXPECTED = True\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -42,17 +44,17 @@ class EvalHarness(unittest.TestCase):
         )
         return path
 
-    def test_prepare_copies_repo_applies_overlay_and_omits_local_secrets(self):
-        suite_path = self.write_suite(
-            [
-                {
-                    "id": "case",
-                    "request": "do something",
-                    "overlay": "overlay",
-                    "expect": {"outcome": "any"},
-                }
-            ]
-        )
+    def simple_case(self, case_id: str = "case") -> dict:
+        return {
+            "id": case_id,
+            "request": "do something",
+            "expect": {"outcome": "any"},
+        }
+
+    def test_prepare_applies_overlay_without_copying_gold_or_local_context(self):
+        case = self.simple_case()
+        case["overlay"] = "evals/fixtures/demo"
+        suite_path = self.write_suite([case])
         paths = eval_module.prepare_suite(suite_path, self.repo, self.output)[0]
         self.assertEqual((paths.workspace / "base.txt").read_text(), "base\n")
         self.assertEqual(
@@ -60,6 +62,9 @@ class EvalHarness(unittest.TestCase):
         )
         self.assertFalse((paths.workspace / ".env").exists())
         self.assertFalse((paths.workspace / "personal.md").exists())
+        self.assertFalse((paths.workspace / "evals").exists())
+        self.assertFalse((paths.workspace / "tests").exists())
+        self.assertFalse((paths.workspace / "suite.json").exists())
         self.assertEqual(paths.request.read_text(), "do something\n")
         self.assertTrue((paths.workspace / ".git").is_dir())
         baseline = json.loads(paths.baseline.read_text())
@@ -194,7 +199,6 @@ class EvalHarness(unittest.TestCase):
         )
         paths = eval_module.prepare_suite(suite_path, self.repo, self.output)[0]
         paths.response.write_text("NO_OP: unsupported\n", encoding="utf-8")
-        # Changing the source suite after preparation must not change this run.
         self.write_suite(
             [
                 {
@@ -221,6 +225,35 @@ class EvalHarness(unittest.TestCase):
         )
         with self.assertRaisesRegex(eval_module.EvalConfigError, "positive"):
             eval_module.load_suite(suite_path)
+
+    def test_force_refuses_repository_root(self):
+        suite_path = self.write_suite([self.simple_case()])
+        with self.assertRaisesRegex(eval_module.EvalConfigError, "repository root"):
+            eval_module.prepare_suite(
+                suite_path, self.repo, self.repo, force=True
+            )
+        self.assertEqual((self.repo / "base.txt").read_text(), "base\n")
+
+    def test_force_refuses_unrelated_nonempty_directory(self):
+        suite_path = self.write_suite([self.simple_case()])
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir()
+        (unrelated / "keep.txt").write_text("keep\n", encoding="utf-8")
+        with self.assertRaisesRegex(eval_module.EvalConfigError, "unrelated directory"):
+            eval_module.prepare_suite(
+                suite_path, self.repo, unrelated, force=True
+            )
+        self.assertEqual((unrelated / "keep.txt").read_text(), "keep\n")
+
+    def test_force_replaces_a_recognized_eval_run(self):
+        suite_path = self.write_suite([self.simple_case()])
+        eval_module.prepare_suite(suite_path, self.repo, self.output)
+        (self.output / "temporary.txt").write_text("replace me\n", encoding="utf-8")
+        eval_module.prepare_suite(
+            suite_path, self.repo, self.output, force=True
+        )
+        self.assertFalse((self.output / "temporary.txt").exists())
+        self.assertTrue((self.output / ".patchouli-eval-run").is_file())
 
 
 if __name__ == "__main__":
