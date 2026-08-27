@@ -2,9 +2,10 @@ from __future__ import annotations
 
 """Advisory review candidates when compiled source pages have changed.
 
-A derived page is a candidate when the current source-page blob for one of its
-works differs from the blob that existed at the derived page's last commit. This
-is deliberately advisory: a changed source may leave the derived claim intact.
+Answers and durable pages depend on their declared work_ids. A source page may
+also contain cross-work judgment under ``## Tensions``; work markers other than
+its own canonical work_id are dependencies as well. A changed dependency means
+"review this page", never "this page is wrong".
 """
 
 import argparse
@@ -13,10 +14,10 @@ import json
 import subprocess
 from typing import Any
 
-from wiki_inventory import PageRecord, WikiInventory, scan_wiki
+from wiki_inventory import PageRecord, WikiInventory, scan_wiki, work_ids_from_text
 from workspace_paths import Workspace
 
-DERIVED_TYPES = {"answer", "concept", "entity", "synthesis"}
+REVIEWABLE_TYPES = {"source", "answer", "concept", "entity", "synthesis"}
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ class StaleFinding:
     page: str
     work_id: str
     source_page: str
-    derived_commit: str
+    page_commit: str
     previous_blob: str | None
     current_blob: str | None
     reason: str
@@ -34,7 +35,7 @@ class StaleFinding:
             "page": self.page,
             "work_id": self.work_id,
             "source_page": self.source_page,
-            "derived_commit": self.derived_commit,
+            "page_commit": self.page_commit,
             "previous_blob": self.previous_blob,
             "current_blob": self.current_blob,
             "reason": self.reason,
@@ -120,6 +121,17 @@ def _source_pages(inventory: WikiInventory) -> dict[str, PageRecord]:
     return pages
 
 
+def dependency_work_ids(page: PageRecord) -> tuple[str, ...]:
+    """Return works whose compiled source pages this page must be reviewed against."""
+
+    if page.page_type == "source":
+        own = page.frontmatter.get("work_id", "").strip()
+        return tuple(
+            sorted(work_id for work_id in set(work_ids_from_text(page.body)) if work_id != own)
+        )
+    return tuple(sorted(set(page.work_ids)))
+
+
 def stale_report(
     workspace: Workspace, inventory: WikiInventory | None = None
 ) -> StaleReport:
@@ -135,29 +147,32 @@ def stale_report(
     findings: list[StaleFinding] = []
     skipped: list[str] = []
 
-    derived_pages = sorted(
-        (page for page in inventory.pages if page.page_type in DERIVED_TYPES),
+    pages = sorted(
+        (page for page in inventory.pages if page.page_type in REVIEWABLE_TYPES),
         key=lambda page: page.path,
     )
-    for page in derived_pages:
+    for page in pages:
+        dependencies = dependency_work_ids(page)
+        if not dependencies:
+            continue
         # An uncommitted page is an active draft, not a historical artifact to review.
         if _is_dirty(workspace, page.path):
             skipped.append(page.path)
             continue
-        derived_commit = _last_commit(workspace, page.path)
-        if derived_commit is None:
+        page_commit = _last_commit(workspace, page.path)
+        if page_commit is None:
             skipped.append(page.path)
             continue
-        for work_id in sorted(set(page.work_ids)):
+        for work_id in dependencies:
             source = sources.get(work_id)
             if source is None:
                 continue  # check_wiki owns unresolved work ids.
-            previous_blob = _blob_at(workspace, derived_commit, source.path)
+            previous_blob = _blob_at(workspace, page_commit, source.path)
             current_blob = _working_blob(workspace, source.path)
             if previous_blob == current_blob and previous_blob is not None:
                 continue
             if previous_blob is None:
-                reason = "source_not_present_at_derived_revision"
+                reason = "source_not_present_at_page_revision"
             elif current_blob is None:
                 reason = "source_page_missing"
             else:
@@ -167,7 +182,7 @@ def stale_report(
                     page=page.path,
                     work_id=work_id,
                     source_page=source.path,
-                    derived_commit=derived_commit,
+                    page_commit=page_commit,
                     previous_blob=previous_blob,
                     current_blob=current_blob,
                     reason=reason,
@@ -195,12 +210,12 @@ def render_report(report: StaleReport) -> str:
         for finding in report.findings:
             lines.append(
                 f"- {finding.page}: work {finding.work_id!r} changed in "
-                f"{finding.source_page} since {finding.derived_commit[:12]} "
+                f"{finding.source_page} since {finding.page_commit[:12]} "
                 f"[{finding.reason}]\n"
             )
     if report.skipped_dirty_pages:
         lines.append(
-            "- skipped uncommitted derived page(s): "
+            "- skipped uncommitted review page(s): "
             + ", ".join(report.skipped_dirty_pages)
             + "\n"
         )
@@ -209,7 +224,7 @@ def render_report(report: StaleReport) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Advisory scan for derived pages whose compiled sources changed"
+        description="Advisory scan for knowledge pages whose compiled sources changed"
     )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args(argv)

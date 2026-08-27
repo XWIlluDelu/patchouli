@@ -39,9 +39,11 @@ concept, entity, synthesis, and hub boundaries belong to `organize`.
 
 Then run the binding floor (`check_wiki.py` → fix any failures → `indexes.py`;
 `lint.py` is advisory). After refreshing an existing work and updating its
-source page, run `python3 scripts/stale.py` and report any derived pages it names
-as review candidates. Do not maintain those pages inside ingest: a changed
-source does not by itself prove that a derived page is wrong.
+source page, run `python3 scripts/stale.py` and report any dependent pages it
+names as review candidates. This may include answers, durable pages, or another
+source page whose `## Tensions` cites the refreshed work. Do not maintain those
+pages inside ingest: a changed source does not by itself prove that a dependent
+page is wrong.
 
 Return `NO_OP: <reason>` if the same version is already covered at equal or
 greater depth. A user selection containing several sources is several complete

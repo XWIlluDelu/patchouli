@@ -1,45 +1,45 @@
 # The philosophy of an agent-built wiki
 
-The design rationale for Patchouli. This is philosophy, not a changelog — where a
-principle and the code disagree, that is a bug in one of them, to be reconciled
-rather than narrated.
+This document explains why Patchouli is shaped the way it is. It is philosophy,
+not a changelog and not a theorem: some claims are imported from research or
+first-party engineering reports, some are analogies, and some are explicit
+product choices. Where a principle and observed reality disagree, the principle
+or the code must change; the disagreement is not explained away.
 
 ## How to read this document
 
-The document is organized by *provenance*, because the strength of a claim
-depends on where it comes from, and the earlier versions of this file blurred
-that. Three layers, in descending order of how much weight they can bear:
+The argument is organized by provenance:
 
-- **Part I — Imported foundations.** What we take from the literature: the
-  reframe, the model-capability thesis, the coherent agent episode, and the two
-  failure modes (gating on a proxy, polluting the context). Each names its source
-  and its boundary — including where we apply a result *by analogy* rather than
-  on its own terms. This layer is load-bearing.
-- **Part II — Our requirements.** The engineering decisions those foundations
-  and the product goal dictate: the asset/logistics split, one undivided pass,
-  the objective floor, the first-class no-op, the contracts. These are *our*
-  choices, not imported truths; they are testable against the code, and a reader
-  who disputes one is disputing a decision, not a citation.
-- **Part III — Our experience.** One in-house comparison from the predecessor
-  eval. It is the weakest evidence here and is treated as such: it *illustrates*
-  the foundations, it does not establish them.
-
-**Part IV** distills the whole into named principles PR1–PR10, each tagged with
-the foundation and requirement it rests on; those labels are the *why* behind
-every contract in `AGENTS.md` and every script in `scripts/`. **Part V** states
-what is well-supported and what is not.
+- **Part I — Imported foundations.** Design visions, empirical findings, and
+  engineering lessons taken from outside Patchouli. Each states the boundary of
+  the transfer, especially where the project applies a result by analogy.
+- **Part II — Patchouli requirements.** Choices made for this product: the
+  asset/logistics split, one coherent contract episode, the objective floor,
+  first-class no-op, source evolution, and operation boundaries. These choices
+  are answerable to the implementation rather than to citation authority.
+- **Part III — Prior project experience.** One informal comparison from a
+  predecessor project. It is useful as experience and carries little evidential
+  weight.
+- **Part IV — Named principles.** PR1–PR10, the compact vocabulary used to
+  inspect contracts and code.
+- **Part V — Confidence and self-audit.** What is strong, what remains an
+  analogy, and what would make the design change.
 
 ## The thesis
 
-An LLM wiki is a persistent, compounding artifact, not a query-time retrieval
-system: knowledge is compiled once at ingest and kept current by refresh and
-maintenance, and the wiki gets richer with every source added and every question
-asked (the reframe is Karpathy's [1]; I.1). This inverts the usual engineering
-problem. In ordinary software the code is the asset and the data is passive;
-here the *wiki* is the asset, and everything around it — the scripts, the
-contracts, the templates — is replaceable logistics. The two are not the same
-kind of thing, and the discipline applies differently to each. That asymmetry is
-the root of every requirement in Part II.
+An LLM wiki is a persistent, compounding artifact rather than a query-time
+retrieval result. Sources are compiled once into maintained, interlinked
+Markdown; supported questions may become durable answers; later operations build
+on that compiled layer instead of reconstructing everything from raw material
+[1]. Unsupported or redundant operations may no-op, so growth is selective
+rather than automatic.
+
+This repository is the framework. In a user's clone, `wiki/`, `extracted/`,
+`notes/`, and Git history become the evolving research record. That record is
+the asset. Scripts, prompts, parser choices, and host-agent integrations are
+logistics around it. Some logistics encode durable invariants and deserve deep
+investment; others are assumptions about today's tools and should remain easy to
+replace.
 
 ---
 
@@ -47,422 +47,371 @@ the root of every requirement in Part II.
 
 ## I.1 The wiki as a compounding artifact (Karpathy)
 
-The foundational reframe is Karpathy's [1]: the wiki is a structured,
-interlinked collection of markdown files that sits between the human and the raw
-sources, compiled once and kept current, not re-derived per query. Karpathy's
-metaphor fixes the roles: Obsidian is the IDE, the LLM is the programmer, the
-wiki is the codebase [1]. The human is not the programmer; the human is the
-product owner — sourcing, exploring, asking — and the agent does the grunt work
-of reading, summarizing, cross-referencing, and filing. This is not a chatbot
-with file access; it is a long-running research librarian.
+Karpathy's LLM Wiki framing places a structured, interlinked Markdown corpus
+between the human and raw sources: Obsidian is the IDE, the LLM is the
+programmer, and the wiki is the codebase [1]. The human remains product owner —
+choosing sources, exploring, and asking — while the agent performs the recurring
+work of reading, summarizing, cross-referencing, and filing.
 
-**Boundary.** This is a design vision, not an empirical result. We adopt its
-framing and test it by building, not because it has been measured.
+**Boundary.** This is a product vision, not an empirical result. Patchouli adopts
+its role assignment and tests the usefulness of the resulting artifact through
+use.
 
-## I.2 Capability lives in the model; orchestration depreciates (Anthropic, Sutton, Lincoln)
+## I.2 Capability lives in the model; scaffolding must pay its tax
 
-Capability lives in the model; the surrounding methodology only arranges the
-conditions under which it operates [2]. Elaborate scaffolding around a model is,
-more often than engineers trained on the older paradigm admit, a way of
-consuming the model's own capacity while maintaining the illusion that the
-scaffolding is the source of the system's intelligence [2]. Every tool, step,
-and custom format is a tax on the model's effectiveness and must pay that tax
-with a larger gain or be removed. Over a longer horizon the bitter lesson
-applies [3]: general methods that scale with compute defeat hand-engineered
-domain knowledge, and by extension hand-built orchestration around a model tends
-to lose to better models running with less of it, on a shelf life measured in
-months [4].
+The model supplies the judgment capability; a methodology arranges the
+conditions under which that capability operates [2]. Every tool, intermediate
+format, fixed stage, and special rule consumes attention, implementation effort,
+or both. Patchouli therefore treats scaffolding as a tax that must buy a larger
+structural benefit.
 
-**Boundary.** Sutton [3] is a claim about compute-scaled *learning* beating
-hand-engineered knowledge over decades; Lincoln [4] is a blog extrapolation of
-it to agent orchestration. The strong form — "all orchestration decays" — is
-directional, not a theorem. We use it to bias toward thin, replaceable logistics
-and thick durable invariants, not as a proof that any given script is doomed.
+The longer-horizon bias comes from Sutton's bitter lesson: general methods that
+scale with computation have repeatedly outlasted hand-engineered domain
+machinery [3]. Applying that lesson to agent orchestration is an extrapolation,
+not a theorem; Lincoln states the stronger version directly as orchestration
+being depreciating capital [4]. Patchouli uses the extrapolation to keep
+model-specific orchestration thin while investing in durable file semantics and
+verification.
 
-## I.3 One coherent contract execution, not one API call (Anthropic, Vaswani)
+**Boundary.** This does not say that every workflow is harmful or that every
+script will decay. It says that complexity begins with a burden of proof, and
+that model-specific control flow should be easier to replace than the user's
+knowledge.
+
+## I.3 One coherent contract episode, not one API call
 
 Patchouli's unit is semantic: one human request is routed to one contract and
 completed in one coherent agent episode. It is **not** a count of model API
 calls, tool turns, context continuations, or Transformer forward passes. A host
-runtime such as a coding-agent application may use many of those while
-preserving one continuous contract execution. The Transformer forward pass is an
-internal model computation [9]; it does not define the human–agent interface used
-here.
+runtime may use many of those while preserving one continuous contract
+execution. A Transformer forward pass is an internal model computation [7]; it
+does not define the human–agent interface used here.
 
-The fragmentation Patchouli resists is imposed one level higher: a harness
-splits one cognitive operation into fixed stages joined by lossy serialized
-handoffs [2] — for example, one model call writes a compressed outline, a second
-is allowed to see only that outline, and a third rewrites until a proxy accepts
-it. An agent reading files, observing tool results, and deciding what to read
-next inside the same episode is not that fragmentation; it is the runtime doing
-its job. A Patchouli-level loop earns its place when the task genuinely needs
-repeated environmental observation or when evaluation shows that the additional
-stage pays for itself.
+The fragmentation Patchouli resists occurs one level higher: a harness divides
+one judgment-bearing operation into fixed stages connected by lossy serialized
+handoffs [2]. An agent reading files, observing tool results, and deciding what
+to inspect next inside the same episode is not fragmented in this sense. An
+additional Patchouli-level stage earns its place when the task truly requires a
+separate environmental observation or when observed use shows that the stage
+pays for itself.
 
-**Boundary.** This is an architectural default and an empirical bias, not a
-claim that all wiki tasks have been measured or that runtime-internal agent loops
-are unnecessary. The distinction between a coherent contract episode and one
-model call is load-bearing.
+**Boundary.** This is an architectural default and an experiential bias. It says
+nothing about the number of internal turns used by Codex, Claude Code, Pi, or
+another host agent.
 
-## I.4 Gating on a proxy degrades substance (Goodhart/Gao, Krakovna, Tam, Anthropic, yAI)
+## I.4 Proxy optimization can displace the real objective
 
-When a checkable proxy is made the target, optimizing it costs the true
-objective. This is Goodhart's law, and it is not folklore here: it is formalized
-for RLHF as reward-model overoptimization, where pushing on an imperfect proxy
-reward past a point measurably lowers ground-truth performance [10], and it is
-named for agents as *specification gaming* — behaviour that satisfies the literal
-specification of an objective without achieving the intended outcome [12].
-Constraining generation toward a *required structure* shows the same signature
-directly: reasoning quality drops under format restrictions, and drops further as
-the restriction tightens [11]. The design response follows: turn subjective
-quality into gradable criteria at *design* time rather than gate on it at run
-time [5], because an agent cannot self-certify subjective quality at run time
-without spending its authoring budget on self-validation [6].
+Goodhart-style failure is formalized in reward-model overoptimization: pushing
+harder on an imperfect proxy eventually lowers ground-truth performance [8].
+DeepMind describes the corresponding agent failure as specification gaming —
+satisfying a literal objective without achieving the intended result [10]. An
+inference-time study also reports degradation under output-format restrictions,
+with stronger restrictions producing larger drops [9], while Anthropic's harness
+guidance recommends turning subjective goals into useful development criteria
+rather than relying on vague run-time self-certification [5].
 
-**Boundary — read this carefully, it is where the rigor lives.** [10] and [12]
-describe *training-time and search-time* optimization; applying them to an
-*inference-time* finish-gate inside one contract execution is an **analogy** —
-the mechanism (a proxy made into a target is optimized at the expense of the
-objective) transfers, the setting differs. [11] is directly about inference-time
-output constraints and is the most on-point, but it is *contested* by later work
-on constrained decoding; it is cited as directional, not decisive. [6] is a
-blog. No single one of these carries the claim. What carries it is their
-*convergence*: a named principle, a formal result, an independent RL-agent
-framing, an on-point (if disputed) empirical study, and Anthropic's own harness
-guidance all point the same way.
+Patchouli transfers this evidence cautiously. A run-time finish-gate inside one
+contract is not the same setting as reward-model training or search. The
+mechanism is an analogy: once an imperfect quality proxy becomes the target, the
+model can spend its authoring budget satisfying the proxy instead of producing
+the best knowledge artifact.
 
-## I.5 Context is a finite budget; off-target context degrades output (Anthropic, Shi, Cuconasu, Liu)
+This is **not** an argument for zero structure. Patchouli deliberately imposes
+page roles, provenance markers, canonical paths, and a few required sections.
+Those constraints shape form and therefore also pay a tax. They are retained
+because they encode durable external relationships — what work a page represents,
+where its reading surface lives, whether a quote exists, whether a link resolves
+— rather than pretending to measure integration depth or insight. The project
+should remove a structural rule when its long-term value no longer pays for its
+cost.
 
-Context is a finite attention budget, and quality degrades as that budget fills
-with lower-signal material — context rot [8]. The effect is measured: irrelevant
-context in the prompt sharply lowers reasoning accuracy [13]; and the sharper,
-less obvious finding is that documents which are *related but not relevant* do
-more damage than plainly unrelated ones [14] — which is precisely what a thin or
-near-duplicate page is to a later read. Even genuinely relevant context is not
-used uniformly: models underuse the middle of long inputs and degrade as the
-input grows, so adding more retrieved material is not free [15].
+**Boundary.** The direct format-restriction evidence [9] is contested by later
+work on constrained decoding, and the training/search results [8, 10] reach
+inference-time authoring only by analogy. The conclusion is a design bias, not a
+universal law.
 
-**Boundary.** [14] The Power of Noise's headline result is that *random* noise
-can sometimes help RAG; we use only its robust, specific finding that
-related-but-irrelevant material is the most harmful kind, the direct analogue of
-a near-duplicate wiki page — not a general "noise is bad" claim. [15] is about
-position and length, not pollution; we use it only for "more context is not
-free."
+## I.5 Context is finite; off-target context is not free
 
----
+Anthropic describes context as a finite attention budget that degrades as it
+fills with lower-signal material [6]. Irrelevant context can sharply lower
+reasoning accuracy [11]; related-but-irrelevant documents can be more harmful
+than plainly unrelated ones [12]; and even relevant information is used unevenly
+as inputs grow, especially in the middle of long contexts [13].
 
-# Part II — Our requirements
+A maintained wiki is unusual because today's output becomes tomorrow's candidate
+context. A thin or near-duplicate page is therefore not merely a weak artifact;
+when selected for a later operation it becomes a related distractor. This is the
+reason selectivity and maintenance matter over time.
 
-These are *our* engineering decisions. Each is derived from the foundations
-above and is answerable to the code, not to a citation.
-
-## II.1 Split the logistics into durable and replaceable
-
-From the thesis and I.2. The logistics are not uniform. Some parts are durable:
-the file topology, the page roles, the evidence conventions (`(Work:)` markers,
-`## Supporting works`, `work_id`/`version_id`, the verbatim-quote rule), and the
-objective-invariant checks in `check_wiki.py`. These describe what a correct
-page *is*, so they outlive any particular runtime. Other parts are replaceable:
-prompt wording, the extraction and discovery scripts — the parts that encode
-assumptions about today's tools. The common error is to pour effort into the
-replaceable machinery and under-invest in the durable structure. Invest in the
-wiki's structure and its invariants; expect to replace the rest.
-
-## II.2 Author in one coherent episode; forbid the two harness-level fragmenters
-
-From I.3 and I.4. Each contract is one authoring episode at the human–agent
-surface: the agent gathers context, decides, writes, and reports. The host
-runtime may use multiple model calls, continuations, and tool turns inside that
-episode. Patchouli does not count or constrain them.
-
-Two *harness-level* structures do fragment the contract, and Patchouli omits
-both. A fixed staged pipeline forces the reasoning through predetermined,
-serialized intermediate artifacts rather than letting the agent control its own
-attention. An interpretive finish-gate makes the model satisfy a subjective
-quality proxy before it may stop, often on a step budget. The only required loop
-after a write is deterministic correction on the objective floor (II.3), which
-is not a quality judgment. Any additional planner, evaluator, or refinement
-stage must earn its place through the task or through evaluation rather than by
-architectural habit.
-
-## II.3 Verify objective invariants outside the pass; never gate on interpretive form
-
-From I.4. Verification is owed, but of one kind and in one place. The right kind
-is *objective invariants only*: work-ids resolve to source pages, verbatim
-quotes match the reading surface, internal links resolve, page types match their
-directories, provenance is present, a source page's `version_id` matches its
-surface. These are deterministic and depend on no judgment, so checking them
-cannot deform the output — there is no proxy to deform toward. This is
-`check_wiki.py`, the binding floor: it runs after every write and a failure is
-fixed and re-checked until it passes, which is the model correcting an objective
-error it can see, not a gate on quality. The wrong kind is *interpretive form* —
-integration depth, relation-label fluency, citation density, narrative
-completeness. A run-time gate on these either blocks good work or deforms it
-toward the proxy (I.4). They are improved at *design* time [5] and reported, never
-enforced, by `lint.py`.
-
-Two refinements keep this from collapsing into carelessness. "No gates" means no
-gate on *interpretive form*; objective verification stays, and is where
-investment compounds. And one undivided pass is not an *unprepared* pass — the
-agent still reads the relevant wiki before it writes; what is removed is the
-harness standing in the middle of the reading, not the reading.
-
-## II.4 The no-op is a first-class output; selectivity is architectural
-
-From I.4 and I.5. A wiki that grows only when growth is justified compounds; one
-that grows on every operation pollutes itself (II.5). So the no-op is a
-first-class output: the model is trusted to refuse to write and required to say
-what would change the refusal. This is enforced by *architecture*, not
-exhortation. Ingest never auto-creates durable pages. Targeted synthesis requires
-an explicit request and at least two genuinely relating works (the floor binds
-the two-work minimum). Organize discovers durable boundaries and is expected to
-decline most candidates. Search records a discovery attempt without touching the
-wiki at all.
-
-## II.5 The wiki is its own future context
-
-From I.5. In most systems context engineering happens once per call. In an LLM
-wiki the wiki *is* the curated context for every future operation: every ingest
-curates the context for the next ask, every synthesis becomes an artifact the
-next one builds on, every concept page becomes a neighbor future ingests link
-to. So the system's output becomes its own input. The cost of a weak page is not
-paid once — it is paid every time it is retrieved into a later context, where it
-acts as exactly the related-but-off-target distractor I.5 identifies as the most
-harmful kind. This is the mechanism that makes selectivity (II.4) compound and
-pollution compound, and it is why the wiki is capital while the logistics
-depreciate.
-
-## II.6 Contracts are the surface; scripts are the floor
-
-The human-facing surface is the contracts — ingest, search, ask, synthesize,
-organize, maintain, and polish — matched to natural language by the routing
-table in `AGENTS.md`. The scripts are deliberately *not* an orchestration layer.
-`extract.py` turns a source into a clean reading surface and prints its
-provenance; `search.py` discovers candidates into `searches/` and touches
-nothing in the wiki; `check_wiki.py` is the objective floor; `indexes.py`
-rebuilds navigation; `lint.py` and `stale.py` advise; `commit.py` confines each
-contract's commit to its exact files. None of them retrieves wiki context for
-the model or decides what a page should say — that is the agent's, by reading and
-judging. Retrieval is *not* on the mechanical side: deciding what to read and
-what is relevant is judgment, and the inversion (a methodology directing an
-agent, not a program calling a model) is what lets the agent do it by reading the
-filesystem natively within one coherent episode (I.3).
-
-## II.7 The human leaves the generation path but stays in the research agenda
-
-From I.1. The human's irreducible roles are sourcing, exploration, and asking —
-product-owner decisions that cannot be delegated without delegating the research
-agenda itself. The reducible roles are review, curation, and run-time quality
-judgment. We take the human off that critical path not by skipping quality but by
-replacing it with mechanisms that do not compete with generation: objective
-invariants checked after the write (II.3), selectivity via the first-class no-op
-(II.4), and subjective quality tuned at design time (I.4). When the user actually
-uses the wiki, no judge runs.
+**Boundary.** A page that is never read does not consume a later context. The
+claim is that every page changes the candidate context available to future
+operations, not that every page affects every operation. The analogy from RAG
+noise to wiki pollution is directional rather than exact.
 
 ---
 
-# Part III — Our experience
+# Part II — Patchouli requirements
 
-One comparison, from the A/P-series arms of the predecessor eval (a
-*program-that-calls-a-model* design that Patchouli inverts). Two observations,
-both *consistent with* Part I and neither *establishing* it:
+## II.1 Separate the compounding asset from replaceable logistics
 
-- An arm whose loop made the model prove structural compliance before it could
-  stop produced more truncated, aggregated synthesis and citation clutter than
-  an arm that kept the same conventions advisory and let the model author in one
-  coherent episode. This is the signature I.4 predicts.
-- Given the same organize command, a selective arm declined most boundaries and
-  produced far fewer durable pages than auto-promoting arms, with no human making
-  the difference — the selectivity II.4 builds in, arising on its own. The
-  cost of the auto-promoted pages is the pollution I.5 describes.
+From the thesis and I.2. The user's compiled wiki and its history are the asset.
+Inside the logistics, file topology, page roles, provenance conventions,
+`work_id`/`version_id`, and objective checks are comparatively durable because
+they define what a valid knowledge artifact is. Prompt wording, parser backends,
+search providers, and runtime integrations encode assumptions about current
+tools and should remain replaceable.
 
-**How much this proves: very little, and it is cited accordingly.** It is a
-single, uncontrolled, in-house run in a separate project, confounded by every
-difference between the arms, scored by one eval whose rubric is not reproduced
-here. It *illustrates* the imported principles; it is not independent evidence
-for them. Everywhere the document leans on those principles, the weight is
-carried by Part I, and this experience is named only as a consistent instance.
-If a future controlled comparison contradicts a principle, the principle
-governs and the arm observation is discarded, not the reverse.
+This is why the public repository can be an empty framework while each clone
+becomes a distinct knowledge instance. The framework is valuable only insofar as
+it helps the instance compound.
+
+## II.2 Complete each contract in one coherent agent episode
+
+From I.3 and I.4. The human-facing surface is one operation: ingest, search, ask,
+synthesize, organize, maintain, or polish. Within that episode the host runtime
+may loop, call models, read files, and use tools as needed. Patchouli itself does
+not impose a fixed model-calling pipeline or require serialized intermediate
+artifacts.
+
+Two harness-level fragmenters remain excluded by default:
+
+- a predetermined multi-stage pipeline that removes the agent's control over
+  what to inspect and when;
+- an interpretive finish-gate that blocks completion until a subjective proxy is
+  satisfied.
+
+The required post-write loop is different: deterministic failures from the
+binding floor are corrected and rechecked. That loop repairs an observable
+invariant rather than judging insight.
+
+## II.3 Bind objective facts; advise on interpretive consequences
+
+`check_wiki.py` enforces facts that can be determined without pretending to
+judge scientific quality: work IDs resolve, source paths and versions match,
+explicit quotes occur in their reading surfaces, internal links resolve, page
+types match directories, and declared support is structurally consistent.
+
+These checks can shape form — every schema does. Their distinction is not that
+they are costless, but that they target durable external relationships rather
+than approximate scores for narrative completeness, integration depth, citation
+density, or originality. Interpretive quality remains the agent's judgment;
+`lint.py` may surface heuristics but never blocks a write.
+
+Source evolution has the same split. It is objective that a compiled source page
+changed after another page was last revised. It is not objective that the
+dependent page became wrong. `stale.py` therefore reports review candidates and
+never enters the binding floor. The agent rereads the current support and either
+revises the page or keeps it with a reason.
+
+## II.4 Make no-op a first-class path
+
+A wiki that grows only when a change is justified compounds more cleanly than
+one that writes on every request. Patchouli therefore gives every
+judgment-bearing contract an explicit no-op result and asks the agent to state
+what would change the decision.
+
+Operation boundaries make selectivity practical: ingest creates one source page
+and never auto-promotes concepts; search records candidates without ingesting;
+synthesize requires a genuine relation and the floor rejects a single-work
+synthesis; organize is expected to decline most boundaries; ask and synthesize
+update matching pages before creating duplicates. The final decision to refuse
+is still model judgment, not a mechanically provable property.
+
+## II.5 Treat the wiki as future candidate context
+
+Every source page, answer, synthesis, concept, and entity becomes material a
+later agent may read. Good pages provide compressed, grounded context; weak or
+duplicate pages compete for the same attention. Selectivity, update-before-
+duplicate, tensions, pruning, and stale review are therefore not housekeeping
+around the product — they shape the future working context of the product.
+
+## II.6 Contracts are the surface; scripts provide deterministic leverage
+
+The contracts define what the human can ask for. Scripts handle stable mechanics:
+
+- `extract.py` produces a reading surface and provenance;
+- `search.py` fetches and formats external discovery candidates;
+- `check_wiki.py` binds objective invariants;
+- `lint.py` and `stale.py` report advisory maintenance candidates;
+- `indexes.py` exposes deterministic navigation and graph data;
+- `commit.py` confines one contract's history to its owned files.
+
+Indexes and search results may expose candidates, but they do not choose the
+wiki context the agent must read or decide what a page should say. Final
+relevance, reading depth, synthesis, and no-op decisions remain with the agent.
+The scripts neither call a model nor form a model-calling orchestration layer.
+
+## II.7 Keep the human in the research agenda, not the generation critical path
+
+The human's irreducible roles are choosing or approving sources, setting the
+research direction, exploring, and asking questions. Selecting candidates from a
+search result belongs to sourcing. Repeated page-level drafting, cross-linking,
+format checking, and ordinary maintenance can leave the critical path and be
+handled by the agent plus deterministic checks.
+
+Personal context may shape assumed background, communication, and standing
+research goals, but it is not evidence. Taste may shape which mechanism,
+boundary, or construct is foregrounded, but it cannot alter page roles or
+provenance discipline.
+
+---
+
+# Part III — Prior project experience
+
+A predecessor project compared several authoring arrangements. Two observations
+informed Patchouli:
+
+- a loop that required the model to prove structural or stylistic compliance
+  before stopping produced more truncated synthesis and citation clutter than an
+  arrangement that kept interpretive criteria advisory and let the model author
+  in one coherent episode;
+- an arrangement that permitted no-op and separated organize from ingest created
+  far fewer durable pages than auto-promotion variants, without a human deciding
+  each individual page.
+
+This experience is weak evidence: it was one informal, uncontrolled comparison,
+confounded by differences between arrangements and judged with a project-specific
+rubric. It illustrates I.4 and I.5; it does not establish them. Better evidence
+or repeated contrary use should revise a principle. This anecdote yields first,
+not reality.
 
 ---
 
 # Part IV — Named principles (PR1–PR10)
 
-The distilled foundation for future discussion. Each principle carries the
-foundation it imports and the requirement it drives, so its provenance is legible
-at a glance.
+**PR1 — The wiki instance is the user's asset; logistics are replaceable.**
+Schema and objective checks are relatively durable; prompts, parsers, providers,
+and runtime integrations should be easy to replace. *(I.1, I.2; II.1.)*
 
-**PR1 — The wiki is the user's asset; the logistics are replaceable.** Inside
-the logistics, schema and objective checks are durable; prompts and scripts are
-depreciating capital. *(Foundations I.1, I.2; requirement II.1.)*
+**PR2 — Capability lives in the model; every scaffold must pay its tax.** Add a
+tool, rule, stage, or format only for a larger structural gain. *(I.2; II.1,
+II.6.)*
 
-**PR2 — Capability lives in the model; the methodology arranges conditions.**
-Elaborate scaffolding is taxation on the model; demand each piece pay its tax
-with structural gain. *(Foundation I.2; requirements II.1, II.6.)*
+**PR3 — Trust the model with judgment; move deterministic work into scripts.**
+The model decides relevance, depth, relation, and refusal. Scripts extract,
+fetch, resolve, verify, index, and confine history. *(I.3, I.4; II.2, II.6.)*
 
-**PR3 — Trust the model with judgment; absorb the *deterministic* into scripts.**
-The model writes, synthesizes, decides relevance, and retrieves by reading; the
-scripts extract, verify, resolve, and index. Mechanical-compliance work inside
-the authoring budget deforms judgment toward proxies. *(Foundations I.3, I.4;
-requirements II.2, II.6.)*
+**PR4 — Complete one human–agent contract in one coherent episode.** Runtime
+model calls and tool loops do not count as fragmentation. Add another
+Patchouli-level stage only when the task or observed use justifies it. *(I.3;
+II.2.)*
 
-**PR4 — Complete each contract in one coherent agent episode; add a
-Patchouli-level loop only when the task or evaluation justifies it.** Model API
-calls, tool turns, and runtime-internal loops inside the episode do not count as
-fragmentation. The two fragmenters are a harness-imposed staged pipeline and an
-interpretive finish-gate. *(Foundation I.3; requirement II.2.)*
+**PR5 — Bind objective invariants; keep interpretive consequences advisory.**
+Quotes, IDs, links, versions, and paths may block. Insight, integration, and the
+meaning of a source change may not. *(I.4; II.3.)*
 
-**PR5 — Verify objective invariants outside the pass; never gate on interpretive
-form.** Work-ids, quotes, links, page types, provenance: checked after,
-corrected, re-checked. Integration depth, citation density: improved at design
-time, never gated at run time. *(Foundation I.4; requirement II.3.)*
+**PR6 — No-op is a first-class result; update before duplicate.** Growth is
+valuable only when the new artifact or revision earns its future context cost.
+*(I.4, I.5; II.4, II.5.)*
 
-**PR6 — The no-op is a first-class output; selectivity compounds.** A wiki that
-grows only when justified compounds; trust the model to refuse and require it to
-say what would change the refusal. *(Foundations I.4, I.5; requirement II.4.)*
+**PR7 — Every page changes the candidate context available to future work.** A
+weak page costs attention when selected later; selectivity and maintenance
+therefore compound. *(I.5; II.5.)*
 
-**PR7 — The wiki is its own future context; every page added changes every
-future operation.** The output becomes the input; a weak page is a distractor
-charged against every later read. *(Foundation I.5; requirement II.5.)*
+**PR8 — Expose operations; keep scripts deterministic and non-interpretive.**
+Scripts may fetch, index, and report candidates, but they do not choose the
+agent's read set or author knowledge. *(I.2, I.3; II.6.)*
 
-**PR8 — Expose operations; keep the scripts to the floor.** The surface is the
-contracts; the scripts do the deterministic work and do not orchestrate or
-retrieve. *(Foundation I.2; requirement II.6.)*
+**PR9 — The human owns the research agenda, not routine page production.** The
+human chooses sources and questions; the agent handles recurring generation and
+maintenance inside that agenda. *(I.1; II.7.)*
 
-**PR9 — The human leaves the generation critical path but stays in the research
-agenda.** The human decides what to ingest and what to ask; objective invariants
-and selectivity are automatic. *(Foundation I.1; requirement II.7.)*
-
-**PR10 — Verification is where investment compounds; orchestration is where it
-decays.** Build verification thick (objective, deterministic, grounded in the
-world) and orchestration thin. If scaffolding grows faster on the orchestration
-side than the verification side, the system is being built backward.
-*(Foundations I.2, I.4; requirements II.3, II.6.)*
+**PR10 — Objective verification tends to compound; model-specific orchestration
+tends to depreciate.** Invest first in invariants grounded outside the model and
+keep runtime-specific control flow thin. *(I.2, I.4; II.1, II.3, II.6.)*
 
 ---
 
 # Part V — Confidence and self-audit
 
-## What is well-supported and what is not
+## What is well supported
 
-The **structural argument** — wiki as asset and logistics as depreciating
-capital (I.1, I.2, II.1), one coherent contract episode with objective
-verification outside it (I.3, I.4, II.2, II.3), and selectivity because the wiki
-is its own future context (I.5, II.4, II.5) — is supported by the imported
-foundations and by an explicit engineering choice about the human–agent surface.
-It is a design position, not a theorem.
+The strongest part of the design is the structural argument: a persistent wiki
+can be treated as an asset; deterministic provenance checks are different from
+interpretive quality judgments; and lower-signal context is not free. The
+specific Patchouli contracts are still product choices, but they follow a clear
+chain from those premises.
 
-Two honest weak points, stated plainly:
+## What remains uncertain
 
-- **The proxy-gating claim (I.4) rests on analogy and on a contested study.** The
-  formal results [10, 12] are about training/search-time optimization, not
-  inference-time gating; the on-point empirical study [11] is disputed. The claim
-  should be read as *"we follow the established design principle that gating on a
-  proxy degrades substance,"* not as *"this is proven for every inference-time
-  finish-gate."* Its strength is convergence, not any one source.
-- **The claim that wiki contracts seldom need a harness-imposed multi-stage loop
-  (I.3) is structural and experiential, not measured across all tasks.** It says
-  nothing about how many model calls or tool turns the host agent runtime uses.
-  The default has an explicit escape clause: a task or evaluation that shows a
-  real benefit from another Patchouli-level stage narrows it.
-
-The **A/P-series arm experience (Part III) is the weakest evidence in this
-document and does not bear weight anywhere.** It illustrates; it does not
-establish.
+- **Proxy gating is an analogy.** Reward-model overoptimization and
+  specification gaming are not identical to an inference-time authoring gate,
+  and the direct format-restriction study is contested. Patchouli adopts a
+  conservative default, not a proved law.
+- **One coherent episode is a default, not a universal optimum.** Some tasks may
+  benefit from an additional explicit stage. Repeated use should decide whether
+  the stage pays for itself.
+- **Wiki pollution is conditional on selection.** A weak page harms later work
+  only when it enters the read set. The design therefore needs selective reading
+  as well as selective writing.
+- **No-op quality remains model judgment.** The architecture makes refusal
+  available and removes automatic promotion; it cannot mechanically prove that
+  a refusal or write was the better research decision.
 
 ## Self-audit
 
-The same checklist the design is meant to pass:
+- Is each human request handled as one coherent contract episode while leaving
+  runtime-internal turns unconstrained? **Yes.**
+- Are objective invariants binding and interpretive findings advisory?
+  **Yes:** `check_wiki.py` binds; `lint.py` and `stale.py` advise.
+- Can every judgment-bearing contract decline or avoid duplication? **Yes:**
+  no-op is explicit, and answer/synthesis/organize update before duplicate.
+- Does ingest avoid automatic durable-page promotion? **Yes.**
+- Does source evolution create a review queue rather than automatic rewriting?
+  **Yes.**
+- Do scripts provide deterministic leverage without calling models or choosing
+  knowledge content? **Yes.**
+- Does the human retain source selection and the research agenda? **Yes.**
 
-- One coherent authoring episode per human–agent contract, regardless of the
-  runtime's internal model and tool turns (PR3, PR4)? Yes — each contract is one
-  semantic read-decide-write operation.
-- Objective invariants verified outside the pass, advisory on the rest, never
-  gating on form (PR5, PR10)? Yes — `check_wiki.py` binds; `lint.py` and
-  `stale.py` advise.
-- The no-op first-class, the model trusted to refuse (PR6)? Yes — every
-  judgment-bearing authoring contract carries it; search records discovery
-  without changing the wiki.
-- A selective wiki, not auto-promotion (PR6, PR7)? Ingest never promotes;
-  targeted synthesis and selective organize are the only durable-page paths.
-- The human in sourcing and asking, out of the generation path (PR9)? Yes.
-- Logistics thin on orchestration, thick on objective verification (PR10)? The
-  scripts are extraction, discovery, scoped commits, checks, advisory scans, and
-  indexes — there is no model-calling orchestration layer.
-
-A "no" on any line is a named reason to reconsider, not a vague worry.
+A "no" is a concrete reason to reconsider the relevant contract or script.
 
 ---
 
 ## Sources
 
-Ordered by first appearance. On authority: [1]–[3], [5], [8]–[15] are
-first-party engineering writing or peer-reviewed / archived research and are the
-load-bearing tier; [4], [6], [7] are independent blog commentary that
-corroborates but that no conclusion rests on alone; [11] is peer-reviewed but its
-result is actively contested, and is used as directional only.
+Ordered by first appearance. First-party engineering reports and peer-reviewed
+or archived research carry the factual load; design essays are used as design
+inspiration and are bounded accordingly.
 
 - [1] Karpathy, Andrej, "LLM Wiki" (2026).
-  <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>. The
-  reframe: wiki as compounding artifact; Obsidian as IDE, LLM as programmer, wiki
-  as codebase; the human as product owner.
+  <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>.
+  The wiki/codebase reframe and human/product-owner role.
 - [2] Anthropic engineering, "Building Effective Agents," "Effective Context
-  Engineering for AI Agents," "Writing Tools for AI Agents," and "Building Agents
-  with the Claude Agent SDK." Capability lives in the model; the cost of
-  fragmenting reasoning across serialized harness stages; when workflows and
-  agent loops are warranted.
+  Engineering for AI Agents," "Writing Tools for AI Agents," and "Building
+  Agents with the Claude Agent SDK." Model capability, simple composable
+  patterns, context management, and tool design.
 - [3] Sutton, Richard, "The Bitter Lesson" (2019).
   <http://www.incompleteideas.net/IncIdeas/BitterLesson.html>. General methods
-  that scale with compute defeat hand-engineered domain knowledge.
+  that scale with computation repeatedly outlast hand-engineered knowledge.
 - [4] Lincoln, Logan, "The Bitter Lesson Kills Your Orchestration Layer" (2025).
   <https://loganlincoln.com/blog/bitter-lesson-kills-your-orchestration-layer>.
-  Orchestration as depreciating capital with a months-long shelf life. Blog
-  extrapolation of [3].
+  A blog extrapolation of [3] to agent orchestration; inspiration, not proof.
 - [5] Anthropic, "Harness design for long-running application development"
-  (2026).
-  <https://www.anthropic.com/engineering/harness-design-long-running-apps>. The
-  generator-evaluator pattern; turning subjective judgment into gradable criteria
-  at design time.
-- [6] yAI, "The Verification Paradox: Why Agents Cannot Automatically Validate
-  Themselves."
-  <https://yaihq.com/research/verification-paradox-agents-cannot-validate-themselves>.
-  Why subjective quality cannot be self-certified by the agent at run time.
-- [7] Agent Hypervisor, "The Bitter Lesson of Agentic Coding."
-  <https://agent-hypervisor.ai/posts/bitter-lesson-of-agentic-coding/>. "Thin on
-  orchestration and thick on verification and memory."
-- [8] Anthropic, "Effective Context Engineering for AI Agents" (2025).
+  (2026). <https://www.anthropic.com/engineering/harness-design-long-running-apps>.
+  Generator/evaluator design and turning subjective goals into useful
+  development criteria.
+- [6] Anthropic, "Effective Context Engineering for AI Agents" (2025).
   <https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents>.
-  Context as a finite attention budget; context rot.
-- [9] Vaswani et al., "Attention Is All You Need" (2017).
+  Context as a finite attention budget and context rot.
+- [7] Vaswani et al., "Attention Is All You Need" (2017).
   <https://arxiv.org/abs/1706.03762>. Architecture background: a Transformer
   forward pass is an internal model computation, not Patchouli's contract unit.
-- [10] Gao, Leo, John Schulman, and Jacob Hilton, "Scaling Laws for Reward Model
-  Overoptimization" (2022). <https://arxiv.org/abs/2210.10760>. Goodhart's law
-  formalized: optimizing an imperfect proxy reward past a point degrades
-  ground-truth performance.
-- [11] Tam, Zhi Rui, et al., "Let Me Speak Freely? A Study on the Impact of
+- [8] Gao, Leo, John Schulman, and Jacob Hilton, "Scaling Laws for Reward Model
+  Overoptimization" (2022). <https://arxiv.org/abs/2210.10760>. Optimizing an
+  imperfect proxy beyond a point degrades ground-truth performance.
+- [9] Tam, Zhi Rui, et al., "Let Me Speak Freely? A Study on the Impact of
   Format Restrictions on Performance of Large Language Models," EMNLP 2024
-  Industry Track. <https://arxiv.org/abs/2408.02442>. Format restrictions
-  measurably reduce reasoning quality; stricter restrictions, larger drops.
-  *Contested by later constrained-decoding work; cited as directional.*
-- [12] Krakovna, Victoria, et al., "Specification gaming: the flip side of AI
+  Industry Track. <https://arxiv.org/abs/2408.02442>. Directional evidence on
+  inference-time format restrictions; the result is contested.
+- [10] Krakovna, Victoria, et al., "Specification gaming: the flip side of AI
   ingenuity," DeepMind (2020).
   <https://deepmind.google/blog/specification-gaming-the-flip-side-of-ai-ingenuity/>.
-  Behaviour that satisfies the literal specification of an objective without the
-  intended outcome.
-- [13] Shi, Freda, et al., "Large Language Models Can Be Easily Distracted by
-  Irrelevant Context," ICML 2023. <https://arxiv.org/abs/2302.00093>. Irrelevant
-  context in the prompt sharply degrades reasoning accuracy.
-- [14] Cuconasu, Florin, et al., "The Power of Noise: Redefining Retrieval for RAG
-  Systems" (2024). <https://arxiv.org/abs/2401.14887>. Related-but-irrelevant
-  documents harm RAG accuracy more than plainly unrelated ones.
-- [15] Liu, Nelson F., et al., "Lost in the Middle: How Language Models Use Long
+  Literal objective satisfaction without the intended outcome.
+- [11] Shi, Freda, et al., "Large Language Models Can Be Easily Distracted by
+  Irrelevant Context," ICML 2023. <https://arxiv.org/abs/2302.00093>.
+- [12] Cuconasu, Florin, et al., "The Power of Noise: Redefining Retrieval for
+  RAG Systems" (2024). <https://arxiv.org/abs/2401.14887>. The specific finding
+  used here is that related-but-irrelevant material can be especially harmful.
+- [13] Liu, Nelson F., et al., "Lost in the Middle: How Language Models Use Long
   Contexts" (2023). <https://arxiv.org/abs/2307.03172>. Relevant information is
-  used unevenly by position, and performance falls as the context grows — more
-  context is not free.
-
-The principles are a synthesis from these sources, illustrated by the A/P-series
-arm evidence in the LLM Wiki Iterate eval project (Part III); the comparative
-analysis that produced them lives there, not in this product. They are the
-foundation for iteration, to be revised when evidence contradicts them.
+  used unevenly by position and input length.

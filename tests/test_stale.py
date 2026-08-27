@@ -9,7 +9,7 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from stale import stale_report  # noqa: E402
+from stale import dependency_work_ids, stale_report  # noqa: E402
 from wiki_inventory import PageRecord, WikiInventory  # noqa: E402
 from workspace_paths import Workspace  # noqa: E402
 
@@ -25,6 +25,7 @@ class StaleDependencies(unittest.TestCase):
         self.git("config", "commit.gpgsign", "false")
         self.put("wiki/sources/work.md", "source v1\n")
         self.put("wiki/sources/other.md", "other v1\n")
+        self.put("wiki/sources/observer.md", "observer v1\n")
         self.put("wiki/answers/answer.md", "answer\n")
         self.put("wiki/concepts/draft.md", "draft\n")
         self.git("add", "--", "wiki")
@@ -53,6 +54,7 @@ class StaleDependencies(unittest.TestCase):
         *,
         work_ids: tuple[str, ...] = (),
         work_id: str | None = None,
+        body: str = "",
     ) -> PageRecord:
         frontmatter = {"work_id": work_id} if work_id else {}
         return PageRecord(
@@ -63,7 +65,7 @@ class StaleDependencies(unittest.TestCase):
             aliases=(),
             work_ids=work_ids,
             frontmatter=frontmatter,
-            body="",
+            body=body,
             links=(),
         )
 
@@ -71,6 +73,7 @@ class StaleDependencies(unittest.TestCase):
         pages = [
             self.page("wiki/sources/work.md", "source", work_id="work"),
             self.page("wiki/sources/other.md", "source", work_id="other"),
+            self.page("wiki/sources/observer.md", "source", work_id="observer"),
             self.page("wiki/answers/answer.md", "answer", work_ids=("work",)),
         ]
         if include_draft:
@@ -118,6 +121,37 @@ class StaleDependencies(unittest.TestCase):
             [finding.page for finding in report.findings],
             ["wiki/answers/answer.md"],
         )
+
+    def test_source_page_depends_only_on_other_work_markers(self):
+        page = self.page(
+            "wiki/sources/observer.md",
+            "source",
+            work_id="observer",
+            body="own claim (Work: observer)\nconflict (Work: work)\n",
+        )
+        self.assertEqual(dependency_work_ids(page), ("work",))
+
+    def test_cross_work_source_tension_is_a_review_candidate(self):
+        inventory = WikiInventory(
+            pages=(
+                self.page("wiki/sources/work.md", "source", work_id="work"),
+                self.page("wiki/sources/other.md", "source", work_id="other"),
+                self.page(
+                    "wiki/sources/observer.md",
+                    "source",
+                    work_id="observer",
+                    body=(
+                        "own claim (Work: observer)\n\n"
+                        "## Tensions\n\nconflict (Work: work)\n"
+                    ),
+                ),
+            )
+        )
+        self.put("wiki/sources/work.md", "source v2\n")
+        report = stale_report(self.ws, inventory)
+        self.assertEqual(len(report.findings), 1)
+        self.assertEqual(report.findings[0].page, "wiki/sources/observer.md")
+        self.assertEqual(report.findings[0].work_id, "work")
 
     def test_without_git_history_reports_unavailable(self):
         tmp = tempfile.TemporaryDirectory()

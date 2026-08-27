@@ -2,12 +2,18 @@
 
 <img src="patchouli-knowledge.png" alt="Patchouli Knowledge" width="320" align="right" />
 
-A research wiki you build by talking to an agent. You bring sources and
-questions; the agent reads, compiles, and cross-references; what the evidence
-cannot support, it declines to write. The wiki under `wiki/` is the compounding
-asset: structured, interlinked markdown where every claim traces back to a
-source, richer with every source ingested and every question asked. Everything
-else in this folder is replaceable logistics around it.
+Patchouli is a framework for a research wiki you build by talking to an agent.
+You bring sources and questions; the agent reads, compiles, and cross-references;
+what the evidence cannot support, it declines to add as knowledge. The wiki
+under `wiki/` is the compounding asset: structured, interlinked Markdown where
+every substantive claim traces back to a source. Everything else in this folder
+is replaceable logistics around it.
+
+This repository is the framework, not a pre-filled knowledge base. Clone it to
+create an instance; the clone's `wiki/`, `extracted/`, `notes/`, and Git history
+become that user's evolving research record. Empty knowledge directories in the
+framework are intentional. Patchouli has no model client of its own: the host
+agent application supplies the model/tool loop and its permission controls.
 
 <br clear="right" />
 
@@ -27,10 +33,10 @@ Start your agent in this folder (`pi`, `codex`, or `claude`); it reads
 | "polish notes/attention-as-explanation.md" — the whole note or one passage | polish | your note proofread in place — mechanics fixed, voice intact |
 
 A knowledge or note change that is not justified returns `NO_OP: <reason>`
-instead of writing; search still records discovery attempts. The wiki grows only
-when growth is earned. `tastes/active.md` is the research taste the agent reads
-for emphasis; point it at another `tastes/*.md` to change what gets
-foregrounded.
+instead of writing; search still records discovery attempts. The wiki grows as
+sources and supported questions accumulate, not merely because an operation was
+requested. `tastes/active.md` is the research taste the agent reads for emphasis;
+point it at another `tastes/*.md` to change what gets foregrounded.
 
 For local standing context, copy `personal.example.md` to `personal.md`. The
 local file is ignored by Git by default and may describe your background,
@@ -39,7 +45,7 @@ emphasis and presentation, never evidence or wiki structure.
 
 ## Setup
 
-This workspace uses the high-quality `docling-enriched` PDF profile:
+This workspace uses the production `docling-enriched` PDF profile:
 
 ```sh
 uv sync --extra pdf-quality
@@ -62,11 +68,11 @@ wired into `scripts/extract.py`; the extractor never probes installed packages
 or falls back to a different parser.
 
 Virtual environments under `.venv/` or `.venv-*/` are ignored; dependency and
-model caches use defaults outside the repository. Git contains only the
-dependency declarations and lockfile. Docling downloads its model artifacts on
-first use and keeps them outside the repository. Local inputs are limited to
-`.pdf`, `.html`, `.htm`, `.md`, and `.txt`; other formats are rejected rather
-than decoded as text.
+model caches use defaults outside the repository. For environments, Git tracks
+the declarations and lockfile rather than the installed packages or downloaded
+models. Docling downloads its model artifacts on first use and keeps them
+outside the repository. Local inputs are limited to `.pdf`, `.html`, `.htm`,
+`.md`, and `.txt`; other formats are rejected rather than decoded as text.
 
 Web-page ingest uses Firecrawl and discovery uses Exa. Copy `.env.example` to
 `.env` and set `FIRECRAWL_API_KEY` / `EXA_API_KEY`. Repeating a key on multiple
@@ -74,19 +80,21 @@ lines pools them, with automatic failover.
 
 ## What is enforced vs. what is judgment
 
-`scripts/check_wiki.py` runs after every write. It enforces required schema,
-canonical source paths, declared work/surface/version/locator consistency,
-contiguous normalized matches for explicit quotes, and unique internal-link
-resolution. It does not prove that a paraphrase follows from its source, that a
-marker is attached to the right claim, or that a page is worth writing; those
-remain the agent's judgment.
+`scripts/check_wiki.py` runs after every authored wiki write. It enforces
+required schema, canonical source paths, declared work/surface/version/locator
+consistency, contiguous normalized matches for explicit quotes, and unique
+internal-link resolution. It does not prove that a paraphrase follows from its
+source, that a marker is attached to the right claim, or that a page is worth
+writing; those remain the agent's judgment.
 
 Two advisory tools never block a write:
 
 - `scripts/lint.py` reports content-health signals such as citation clutter,
   orphans, and duplicate titles;
-- `scripts/stale.py` reports committed answers and durable pages whose compiled
-  source pages have changed since the derived page's last revision.
+- `scripts/stale.py` reports committed knowledge pages whose compiled source
+  dependencies have changed since the page's last revision. This includes
+  answers and durable pages, plus source pages that make cross-work judgments in
+  `## Tensions`.
 
 A stale report is a maintenance queue, not a correctness verdict. The floor and
 advisory tools are tested with `python3 -m unittest discover -s tests`.
@@ -101,10 +109,10 @@ operation, while Git retains the previous state. After a refresh, run:
 python3 scripts/stale.py
 ```
 
-The scan compares each committed answer, concept, entity, and synthesis with the
-source-page blobs that existed at that page's last commit. It names pages to
-review but does not rewrite or invalidate them automatically: an updated source
-may leave a derived claim unchanged.
+The scan compares each committed dependent page with the source-page blobs that
+existed at that page's last commit. It names pages to review but does not rewrite
+or invalidate them automatically: an updated source may leave a derived claim or
+cross-work tension unchanged.
 
 ## Layout
 

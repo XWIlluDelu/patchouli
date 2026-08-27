@@ -234,6 +234,26 @@ def page_type_for(workspace: Workspace, path: Path) -> str:
     return "unknown"
 
 
+def _page_work_ids(
+    page_type: str, metadata: dict[str, str], body: str
+) -> tuple[str, ...]:
+    """Return the page's canonical work identity/support set.
+
+    A source page owns exactly its frontmatter ``work_id``. Work markers for
+    another source in a ``Tensions`` section are dependencies, not additional
+    identities for the source page; admitting them here would corrupt work-id
+    link resolution and graph membership. Other claim-bearing page types use
+    their declared ``work_ids``, with body markers retained only as a scanner
+    fallback so the binding floor can diagnose missing frontmatter.
+    """
+
+    if page_type == "source":
+        work_id = metadata.get("work_id", "").strip()
+        return (work_id,) if work_id else ()
+    declared = parse_inline_list(metadata.get("work_ids", ""))
+    return declared or work_ids_from_text(body)
+
+
 def scan_wiki(workspace: Workspace) -> WikiInventory:
     pages: list[PageRecord] = []
     problems: list[str] = []
@@ -252,9 +272,6 @@ def scan_wiki(workspace: Workspace) -> WikiInventory:
             (line[2:].strip() for line in body.splitlines() if line.startswith("# ")),
             path.stem,
         )
-        work_ids = parse_inline_list(metadata.get("work_ids", ""))
-        if not work_ids:
-            work_ids = work_ids_from_text(body)
         pages.append(
             PageRecord(
                 path=rel,
@@ -262,7 +279,7 @@ def scan_wiki(workspace: Workspace) -> WikiInventory:
                 page_type=page_type,
                 title=title,
                 aliases=parse_inline_list(metadata.get("aliases", "")),
-                work_ids=work_ids,
+                work_ids=_page_work_ids(page_type, metadata, body),
                 frontmatter=metadata,
                 body=body,
                 links=links_from_text(body),

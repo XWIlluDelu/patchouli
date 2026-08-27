@@ -12,8 +12,9 @@ For a general maintenance sweep, run both advisory scans:
 
 - `python3 scripts/lint.py` for citation clutter, workflow residue, orphans, and
   duplicate titles;
-- `python3 scripts/stale.py` for committed answers and durable pages whose
-  compiled source-page blobs have changed since the page's last revision.
+- `python3 scripts/stale.py` for committed knowledge pages whose compiled source
+  dependencies have changed since the page's last revision. This includes
+  source pages with cross-work `## Tensions`, not only answers and durable pages.
 
 A stale finding is a review candidate, not a defect. Re-read the current
 supporting source pages and revise only when the source change affects the page;
