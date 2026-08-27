@@ -86,7 +86,7 @@ Two advisory tools never block a write:
 - `scripts/lint.py` reports content-health signals such as citation clutter,
   orphans, and duplicate titles;
 - `scripts/stale.py` reports committed answers and durable pages whose compiled
-  source pages have changed since the derived page's last revision.
+  source pages have changed since the derived page's last revision or review.
 
 A stale report is a maintenance queue, not a correctness verdict. The floor and
 advisory tools are tested with `python3 -m unittest discover -s tests`.
@@ -106,33 +106,65 @@ source-page blobs that existed at that page's last commit. It names pages to
 review but does not rewrite or invalidate them automatically: an updated source
 may leave a derived claim unchanged.
 
+When a review concludes that the page remains valid, consume that queue item
+without touching the knowledge page:
+
+```sh
+python3 scripts/stale.py --acknowledge wiki/answers/example.md
+# or acknowledge one dependency only
+python3 scripts/stale.py --acknowledge wiki/answers/example.md --work-id 1706.03762
+```
+
+The command binds the review to the current committed source-page blob in the
+tracked `wiki/.stale-reviews.json` sidecar. Commit that sidecar with the
+maintenance operation. If the source changes again, the candidate reopens.
+
 ## Evaluation
 
 `scripts/eval.py` provides a runtime-agnostic evaluation harness without an LLM
-client. It copies the framework into isolated case workspaces, optionally applies
-small fixture overlays, initializes a baseline Git commit for the scoped-commit
-contract, lets a user-supplied agent CLI execute each request, and grades
-observable outcomes: `NO_OP` versus write, changed paths, content assertions,
-and the binding floor.
+client. It copies the framework into case workspaces, optionally applies fixture
+overlays, initializes a baseline Git commit for the scoped-commit contract, lets
+a user-supplied agent CLI execute each request, and grades observable outcomes:
+`NO_OP` versus write, changed paths, content assertions, and the binding floor.
 
-Local `.env` and `personal.md` files are omitted from evaluation workspaces. A
-prepared run freezes its suite definition, and non-interactive cases time out
-after 900 seconds by default rather than hanging indefinitely.
+There are two deliberately different modes:
 
-Prepare the included low-cost smoke suite for manual execution:
+- `prepare` is convenient for manual/open-book acceptance runs. The copied
+  workspace omits `.env`, `personal.md`, suites, fixtures, and grader tests, but
+  the harness cannot stop a manually launched process from reading parent or
+  repository paths unless the agent app supplies its own sandbox.
+- `run` defaults to Linux Bubblewrap isolation. Its mount/PID namespace exposes
+  the case workspace, request, response, a small read-only system root, and only
+  explicitly allowed non-gold paths. The repository, suite, other cases, and run
+  control files are absent from the adapter filesystem. A timeout terminates the
+  adapter process group; Bubblewrap also contains descendants in its PID
+  namespace.
+
+The included `evals/smoke.json` is public acceptance material, not held-out gold.
+Run it cheaply without pretending otherwise:
 
 ```sh
-python3 scripts/eval.py prepare evals/smoke.json
-```
-
-Or run it through a non-interactive agent command:
-
-```sh
-python3 scripts/eval.py run evals/smoke.json --force \
+python3 scripts/eval.py run evals/smoke.json --force --isolation none \
   --adapter-command 'claude -p "$PATCHOULI_EVAL_REQUEST"'
 ```
 
-See `evals/README.md` for the adapter protocol and suite schema.
+For a held-out local run, keep the suite and its fixture directories private and
+unpublished; overlay paths are resolved relative to the suite file. Install
+`bwrap`, then run:
+
+```sh
+python3 scripts/eval.py run /private/evals/suite.json --force \
+  --isolation bwrap \
+  --sandbox-home ~/.patchouli-eval-home \
+  --adapter-command 'your-agent-cli "$PATCHOULI_EVAL_REQUEST"'
+```
+
+Use a dedicated sandbox home outside the Patchouli repository and eval output,
+containing only the adapter state it needs. Additional `--sandbox-read` and
+`--sandbox-write` mounts are available, but the harness rejects mounts that
+would expose repository, suite, or run-control paths. Network access remains
+available for model APIs, so published benchmark material is necessarily
+open-book. See `evals/README.md` for the full protocol.
 
 ## Layout
 
@@ -142,7 +174,7 @@ README.md   this file
 personal.example.md   template for optional local personal.md (ignored by default)
 pyproject.toml, uv.lock   common dependencies and mutually exclusive PDF profiles
 docs/       the design argument (llm-wiki-philosophy.md)
-evals/      runtime-agnostic suites and synthetic fixture overlays
+evals/      public acceptance suites and synthetic fixture overlays
 prompts/    one task file per operation
 system/     page_templates.md — structural source of truth for every page type
 scripts/    extract, search, checks, stale review, indexes, scoped commit, and eval

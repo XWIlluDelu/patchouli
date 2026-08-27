@@ -42,10 +42,10 @@ Two scripts advise and never block:
 - `python3 scripts/lint.py` reports citation clutter, workflow residue, orphans,
   and duplicate titles.
 - `python3 scripts/stale.py` compares each committed answer or durable page with
-  the compiled source-page blobs that existed at its last revision. A finding
-  means "review this page," not "this page is wrong"; an updated source may
-  leave the derived claim intact. Uncommitted derived pages are skipped as
-  active drafts.
+  the compiled source-page blobs that existed at its last revision or explicit
+  no-change review. A finding means "review this page," not "this page is
+  wrong"; an updated source may leave the derived claim intact. Uncommitted
+  derived pages are skipped as active drafts.
 
 Act on advisory findings only when the underlying problem is real. Everything
 outside the binding floor — what is worth saying, how deep to integrate, whether
@@ -83,8 +83,10 @@ below is only the line each one must not cross.
   boundary or reading path genuinely earns one; declining most candidates is
   expected; update before you duplicate.
 - **maintain** — correct a page only against the evidence it represents; review
-  real stale candidates and other fixable problems; no-op-keep the rest with a
-  reason.
+  real stale candidates and other fixable problems. When a stale candidate
+  remains valid, record its current source revision in
+  `wiki/.stale-reviews.json` rather than rewriting the page; report
+  `REVIEWED_KEEP`, not `NO_OP`, because tracked review state changed.
 - **polish** — proofread what the user names, a note or a passage within one, on
   request only: mechanics and sentence-level phrasing; structural changes wait
   for a yes; never touches `wiki/`.
@@ -102,7 +104,8 @@ below is only the line each one must not cross.
   retains the prior tracked surface. If an extraction is damaged, record that in
   the source page's `## Extraction caveats`.
 - `wiki/` is derived, maintained knowledge. Every claim here traces back to a
-  source.
+  source. `wiki/.stale-reviews.json` is tracked maintenance metadata, not a
+  knowledge page; it binds evidence-grounded no-change reviews to source blobs.
 - `notes/` is human-written, only ever. The one operation that edits it is
   polish, on request, on the note or passage the user names. A note enters the
   wiki the same way a paper does: the user says to ingest it.
