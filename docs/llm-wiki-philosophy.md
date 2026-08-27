@@ -272,8 +272,8 @@ informed Patchouli:
 This experience is weak evidence: it was one informal, uncontrolled comparison,
 confounded by differences between arrangements and judged with a project-specific
 rubric. It illustrates I.4 and I.5; it does not establish them. Better evidence
-or repeated contrary use should revise a principle. This anecdote yields first,
-not reality.
+or repeated contrary use should revise a principle. When this anecdote and
+repeated reality disagree, the anecdote yields.
 
 ---
 
