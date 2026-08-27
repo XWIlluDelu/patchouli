@@ -3,9 +3,9 @@ from __future__ import annotations
 """Advisory review candidates when compiled source pages have changed.
 
 Answers and durable pages depend on their declared work_ids. A source page may
-also contain cross-work judgment under ``## Tensions``; work markers other than
-its own canonical work_id are dependencies as well. A changed dependency means
-"review this page", never "this page is wrong".
+also contain cross-work judgment, normally under ``## Tensions``; work markers
+other than its own canonical work_id are dependencies as well. A changed
+dependency means "review this page", never "this page is wrong".
 """
 
 import argparse
@@ -25,7 +25,7 @@ class StaleFinding:
     page: str
     work_id: str
     source_page: str
-    page_commit: str
+    derived_commit: str
     previous_blob: str | None
     current_blob: str | None
     reason: str
@@ -35,7 +35,7 @@ class StaleFinding:
             "page": self.page,
             "work_id": self.work_id,
             "source_page": self.source_page,
-            "page_commit": self.page_commit,
+            "derived_commit": self.derived_commit,
             "previous_blob": self.previous_blob,
             "current_blob": self.current_blob,
             "reason": self.reason,
@@ -126,9 +126,8 @@ def dependency_work_ids(page: PageRecord) -> tuple[str, ...]:
 
     if page.page_type == "source":
         own = page.frontmatter.get("work_id", "").strip()
-        return tuple(
-            sorted(work_id for work_id in set(work_ids_from_text(page.body)) if work_id != own)
-        )
+        referenced = set(work_ids_from_text(page.body))
+        return tuple(sorted(referenced - {own}))
     return tuple(sorted(set(page.work_ids)))
 
 
@@ -172,7 +171,7 @@ def stale_report(
             if previous_blob == current_blob and previous_blob is not None:
                 continue
             if previous_blob is None:
-                reason = "source_not_present_at_page_revision"
+                reason = "source_not_present_at_derived_revision"
             elif current_blob is None:
                 reason = "source_page_missing"
             else:
@@ -182,7 +181,7 @@ def stale_report(
                     page=page.path,
                     work_id=work_id,
                     source_page=source.path,
-                    page_commit=page_commit,
+                    derived_commit=page_commit,
                     previous_blob=previous_blob,
                     current_blob=current_blob,
                     reason=reason,
@@ -210,12 +209,12 @@ def render_report(report: StaleReport) -> str:
         for finding in report.findings:
             lines.append(
                 f"- {finding.page}: work {finding.work_id!r} changed in "
-                f"{finding.source_page} since {finding.page_commit[:12]} "
+                f"{finding.source_page} since {finding.derived_commit[:12]} "
                 f"[{finding.reason}]\n"
             )
     if report.skipped_dirty_pages:
         lines.append(
-            "- skipped uncommitted review page(s): "
+            "- skipped uncommitted dependent page(s): "
             + ", ".join(report.skipped_dirty_pages)
             + "\n"
         )

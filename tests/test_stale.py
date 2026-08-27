@@ -96,6 +96,12 @@ class StaleDependencies(unittest.TestCase):
         self.assertEqual(finding.work_id, "work")
         self.assertEqual(finding.reason, "source_page_changed")
 
+    def test_json_keeps_derived_commit_field(self):
+        self.put("wiki/sources/work.md", "source v2\n")
+        data = stale_report(self.ws, self.inventory()).findings[0].to_dict()
+        self.assertIn("derived_commit", data)
+        self.assertNotIn("page_commit", data)
+
     def test_committed_source_change_stays_stale_until_page_is_revised(self):
         self.put("wiki/sources/work.md", "source v2\n")
         self.git("add", "--", "wiki/sources/work.md")
