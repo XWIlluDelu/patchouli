@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shlex
+import shutil
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,10 @@ sys.path.insert(0, str(SCRIPTS))
 import eval as eval_module  # noqa: E402
 
 
+@unittest.skipUnless(
+    sys.platform.startswith("linux") and shutil.which("bwrap"),
+    "Bubblewrap integration requires a Linux host with bwrap installed",
+)
 class BubblewrapBoundary(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
