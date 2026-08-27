@@ -44,7 +44,10 @@ jobs:
           sudo apt-get install -y bubblewrap
           python -m pip install --upgrade pip
           python -m pip install beautifulsoup4==4.15.0 markdownify==1.2.3
+      - name: Enable the runner's unprivileged-user-namespace capability
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Exercise the held-out sandbox boundary
-        env:
-          PATCHOULI_BWRAP_INTEGRATION: "1"
-        run: python -m unittest discover -s tests -p 'test_eval_security.py'
+        run: python -m unittest discover -s tests -p 'test_eval_bwrap.py'
