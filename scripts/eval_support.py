@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Shared workspace and adapter utilities for Patchouli evaluations."""
+"""Shared workspace, isolation, and adapter utilities for Patchouli evaluations."""
 
 from dataclasses import dataclass
 import fnmatch
@@ -33,7 +33,7 @@ DEFAULT_EXCLUDE = (
     "**/*.pyc",
     ".patchouli-eval-runs",
     ".patchouli-eval-runs/**",
-    # Gold suites, fixture sources, and grader tests must not be visible to the agent.
+    # Gold suites, fixture sources, and grader tests must not be visible in a case.
     "evals",
     "evals/**",
     "tests",
@@ -42,7 +42,7 @@ DEFAULT_EXCLUDE = (
 
 
 class EvalConfigError(ValueError):
-    """The suite is malformed or references an unsafe path."""
+    """The suite or requested adapter runtime is malformed or unsafe."""
 
 
 @dataclass(frozen=True)
@@ -156,10 +156,17 @@ def _safe_relative(root: Path, value: str, *, label: str) -> Path:
     return candidate
 
 
-def _overlay_path(repo_root: Path, value: str) -> Path:
-    path = _safe_relative(repo_root, value, label="overlay")
-    if path == repo_root.resolve():
-        raise EvalConfigError("overlay must be a subdirectory, not the repository root")
+def _overlay_path(suite_path: Path, value: str) -> Path:
+    """Resolve a fixture beneath its suite directory, including private suites."""
+
+    root = suite_path.parent.resolve()
+    path = (root / value).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise EvalConfigError(f"overlay escapes the suite directory: {value}") from exc
+    if path == root:
+        raise EvalConfigError("overlay must be a subdirectory, not the suite directory")
     if not path.is_dir():
         raise EvalConfigError(f"overlay is not a directory: {value}")
     return path
@@ -176,43 +183,89 @@ def _hide_path(repo_root: Path, path: Path) -> list[str]:
     return values
 
 
-def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -> None:
-    if destination.exists():
+def _copy_tree(
+    source: Path,
+    destination: Path,
+    *,
+    confinement_root: Path,
+    patterns: tuple[str, ...] = (),
+    merge: bool,
+) -> None:
+    """Copy one finite tree while materializing only confined file symlinks."""
+
+    source = source.resolve()
+    confinement_root = confinement_root.resolve()
+    if destination.exists() and not merge:
         raise EvalConfigError(f"workspace already exists: {destination}")
-    destination.mkdir(parents=True)
-    source_root = source.resolve()
+    destination.mkdir(parents=True, exist_ok=merge)
+    destination_root = destination.resolve()
+
     for path in sorted(source.rglob("*")):
         rel = path.relative_to(source).as_posix()
-        if _excluded(rel, patterns):
+        if patterns and _excluded(rel, patterns):
             continue
         target = destination / rel
+        try:
+            target.resolve(strict=False).relative_to(destination_root)
+        except ValueError as exc:
+            raise EvalConfigError(f"copy target escapes destination: {rel}") from exc
+
         if path.is_symlink():
-            resolved = path.resolve()
             try:
-                resolved.relative_to(source_root)
+                resolved = path.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise EvalConfigError(f"broken workspace symlink: {rel}") from exc
+            try:
+                resolved_rel = resolved.relative_to(confinement_root).as_posix()
             except ValueError as exc:
                 raise EvalConfigError(
-                    f"workspace symlink escapes repository: {rel} -> {resolved}"
+                    f"workspace symlink escapes repository/source tree: {rel} -> {resolved}"
                 ) from exc
             if resolved.is_dir():
                 raise EvalConfigError(
                     f"directory symlinks are not supported in eval workspaces: {rel}"
                 )
             if not resolved.is_file():
-                raise EvalConfigError(f"broken workspace symlink: {rel}")
+                raise EvalConfigError(f"unsupported workspace symlink target: {rel}")
+            if patterns and _excluded(resolved_rel, patterns):
+                raise EvalConfigError(
+                    f"workspace symlink reaches excluded material: {rel} -> {resolved_rel}"
+                )
+            if target.exists() and target.is_dir():
+                raise EvalConfigError(f"overlay file collides with a directory: {rel}")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(resolved, target)
         elif path.is_dir():
+            if target.exists() and not target.is_dir():
+                raise EvalConfigError(f"overlay directory collides with a file: {rel}")
             target.mkdir(parents=True, exist_ok=True)
         elif path.is_file():
+            if target.exists() and target.is_dir():
+                raise EvalConfigError(f"overlay file collides with a directory: {rel}")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
 
 
-def apply_overlay(repo_root: Path, workspace: Path, overlay: str | None) -> None:
+def copy_workspace(source: Path, destination: Path, patterns: tuple[str, ...]) -> None:
+    _copy_tree(
+        source,
+        destination,
+        confinement_root=source,
+        patterns=patterns,
+        merge=False,
+    )
+
+
+def apply_overlay(suite_path: Path, workspace: Path, overlay: str | None) -> None:
     if overlay is None:
         return
-    shutil.copytree(_overlay_path(repo_root, overlay), workspace, dirs_exist_ok=True)
+    source = _overlay_path(suite_path, overlay)
+    _copy_tree(
+        source,
+        workspace,
+        confinement_root=source,
+        merge=True,
+    )
 
 
 def initialize_git(workspace: Path) -> None:
@@ -286,13 +339,17 @@ def case_paths(output_root: Path, case_id: str) -> CasePaths:
 
 
 def prepare_case(
-    suite: dict[str, Any], case: dict[str, Any], repo_root: Path, output_root: Path
+    suite: dict[str, Any],
+    case: dict[str, Any],
+    suite_path: Path,
+    repo_root: Path,
+    output_root: Path,
 ) -> CasePaths:
     paths = case_paths(output_root, case["id"])
     paths.root.mkdir(parents=True, exist_ok=False)
     patterns = patterns_for(suite, case)
     copy_workspace(repo_root, paths.workspace, patterns)
-    apply_overlay(repo_root, paths.workspace, case.get("overlay"))
+    apply_overlay(suite_path, paths.workspace, case.get("overlay"))
     initialize_git(paths.workspace)
     paths.request.write_text(case["request"].rstrip() + "\n", encoding="utf-8")
     paths.baseline.write_text(
@@ -343,7 +400,7 @@ def prepare_suite(
     for case in suite["cases"]:
         overlay = case.get("overlay")
         if overlay is not None:
-            hidden.extend(_hide_path(repo_root, _overlay_path(repo_root, overlay)))
+            hidden.extend(_hide_path(repo_root, _overlay_path(suite_path, overlay)))
 
     try:
         output_rel = output_root.resolve().relative_to(repo_root.resolve()).as_posix()
@@ -361,62 +418,7 @@ def prepare_suite(
     (output_root / "suite.json").write_text(
         json.dumps(suite, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    return [prepare_case(suite, case, repo_root, output_root) for case in suite["cases"]]
-
-
-def _timeout_text(value: str | bytes | None) -> str:
-    if value is None:
-        return ""
-    return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
-
-
-def run_adapter(
-    command: str,
-    case: dict[str, Any],
-    paths: CasePaths,
-    *,
-    timeout_seconds: float | None = None,
-) -> int:
-    env = os.environ.copy()
-    env.update(
-        {
-            "PATCHOULI_EVAL_CASE_ID": case["id"],
-            "PATCHOULI_EVAL_REQUEST": case["request"],
-            "PATCHOULI_EVAL_REQUEST_FILE": str(paths.request.resolve()),
-            "PATCHOULI_EVAL_RESPONSE_FILE": str(paths.response.resolve()),
-            "PATCHOULI_EVAL_WORKSPACE": str(paths.workspace.resolve()),
-        }
-    )
-    timed_out = False
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=paths.workspace,
-            env=env,
-            shell=True,
-            text=True,
-            capture_output=True,
-            timeout=timeout_seconds,
-        )
-        stdout, stderr, returncode = completed.stdout, completed.stderr, completed.returncode
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        stdout, stderr, returncode = _timeout_text(exc.stdout), _timeout_text(exc.stderr), 124
-
-    paths.stdout.write_text(stdout, encoding="utf-8")
-    paths.stderr.write_text(stderr, encoding="utf-8")
-    if not paths.response.exists():
-        paths.response.write_text(stdout, encoding="utf-8")
-    paths.adapter.write_text(
-        json.dumps(
-            {
-                "returncode": returncode,
-                "timed_out": timed_out,
-                "timeout_seconds": timeout_seconds,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return returncode
+    return [
+        prepare_case(suite, case, suite_path, repo_root, output_root)
+        for case in suite["cases"]
+    ]

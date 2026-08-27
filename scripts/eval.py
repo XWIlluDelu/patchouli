@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from eval_grading import grade_suite, render_summary
+from eval_runtime import DEFAULT_ISOLATION, run_adapter
 from eval_support import (
     DEFAULT_OUTPUT,
     DEFAULT_TIMEOUT_SECONDS,
@@ -15,7 +16,6 @@ from eval_support import (
     load_run_suite,
     load_suite,
     prepare_suite,
-    run_adapter,
 )
 
 # Re-export the programmatic surface used by tests and custom adapters.
@@ -66,6 +66,38 @@ def build_parser() -> argparse.ArgumentParser:
                     f"(default: {DEFAULT_TIMEOUT_SECONDS:g})"
                 ),
             )
+            sub.add_argument(
+                "--isolation",
+                choices=("bwrap", "none"),
+                default=DEFAULT_ISOLATION,
+                help=(
+                    "adapter isolation: bwrap provides a held-out local filesystem/PID "
+                    "boundary on Linux; none is explicitly open-book "
+                    f"(default: {DEFAULT_ISOLATION})"
+                ),
+            )
+            sub.add_argument(
+                "--sandbox-home",
+                default=None,
+                help=(
+                    "dedicated adapter home directory mounted read-write inside bwrap; "
+                    "keep it outside the repository and run output"
+                ),
+            )
+            sub.add_argument(
+                "--sandbox-read",
+                action="append",
+                default=[],
+                metavar="PATH",
+                help="additional non-gold path to mount read-only inside bwrap (repeatable)",
+            )
+            sub.add_argument(
+                "--sandbox-write",
+                action="append",
+                default=[],
+                metavar="PATH",
+                help="additional non-gold path to mount read-write inside bwrap (repeatable)",
+            )
     return parser
 
 
@@ -79,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
             cases = prepare_suite(suite_path, repo_root, output_root, force=args.force)
             for paths in cases:
                 print(f"prepared {paths.root.name}: {paths.workspace}")
+            print(
+                "manual prepare mode is open-book unless the agent app supplies its own "
+                "filesystem sandbox",
+                file=sys.stderr,
+            )
             return 0
         if args.command == "run":
             if args.timeout_seconds <= 0:
@@ -86,6 +123,12 @@ def main(argv: list[str] | None = None) -> int:
             suite = load_suite(suite_path)
             prepare_suite(suite_path, repo_root, output_root, force=args.force)
             suite_timeout = suite.get("timeout_seconds", args.timeout_seconds)
+            if args.isolation == "none":
+                print(
+                    "warning: --isolation none is open-book; use only for acceptance smoke "
+                    "or when the agent runtime independently confines filesystem access",
+                    file=sys.stderr,
+                )
             for case in suite["cases"]:
                 paths = case_paths(output_root, case["id"])
                 timeout = float(case.get("timeout_seconds", suite_timeout))
@@ -95,6 +138,13 @@ def main(argv: list[str] | None = None) -> int:
                     case,
                     paths,
                     timeout_seconds=timeout,
+                    isolation=args.isolation,
+                    repo_root=repo_root,
+                    suite_path=suite_path,
+                    output_root=output_root,
+                    sandbox_home=args.sandbox_home,
+                    sandbox_read=args.sandbox_read,
+                    sandbox_write=args.sandbox_write,
                 )
             results = grade_suite(suite_path, output_root)
         else:

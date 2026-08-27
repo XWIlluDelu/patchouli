@@ -19,7 +19,7 @@
     },
     {
       "id": "ask-supported-number",
-      "overlay": "evals/fixtures/demo-study",
+      "overlay": "fixtures/demo-study",
       "request": "What does the wiki say about the sample size and main result in Demo Study?",
       "expect": {
         "outcome": "write",
@@ -44,7 +44,7 @@
     },
     {
       "id": "synthesize-one-work-no-op",
-      "overlay": "evals/fixtures/demo-study",
+      "overlay": "fixtures/demo-study",
       "request": "Synthesize the spaced-practice evidence across the wiki.",
       "expect": {
         "outcome": "no_op",
