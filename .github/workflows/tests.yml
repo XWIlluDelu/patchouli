@@ -29,3 +29,22 @@ jobs:
         run: python -m compileall -q scripts tests
       - name: Run unit tests
         run: python -m unittest discover -s tests
+
+  sandbox:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Bubblewrap and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          python -m pip install --upgrade pip
+          python -m pip install beautifulsoup4==4.15.0 markdownify==1.2.3
+      - name: Exercise the held-out sandbox boundary
+        env:
+          PATCHOULI_BWRAP_INTEGRATION: "1"
+        run: python -m unittest discover -s tests -p 'test_eval_security.py'
