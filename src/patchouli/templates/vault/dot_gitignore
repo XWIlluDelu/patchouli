@@ -1,0 +1,5 @@
+.patchouli/index.db
+.patchouli/cache/
+.patchouli/trash/
+.patchouli/sources.lock
+.DS_Store
