@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patchouli"
+version = "0.5.0"
+description = "An LLM-wiki framework for research: an agent compiles sources into a traceable, evolving knowledge base."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# High-quality PDF reading text: layout model, OCR (RapidOCR/ONNX), tables, formulas.
+# Heavy (~5 GB incl. torch and models); used automatically when installed.
+pdf-quality = ["docling[rapidocr]>=2.150,<3", "onnxruntime>=1.20"]
+# Light alternative to poppler's pdftotext.
+pdf = ["pypdf>=4"]
+
+[project.scripts]
+patchouli = "patchouli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+patchouli = ["templates/**/*"]
